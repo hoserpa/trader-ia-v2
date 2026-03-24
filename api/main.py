@@ -68,3 +68,8 @@ async def health(redis: aioredis.Redis = Depends(get_redis)):
     except Exception:
         redis_ok = False
     return {"status": "ok", "redis": redis_ok, "version": "1.0.0"}
+
+
+@app.get("/api/config/public")
+async def public_config():
+    return {"username": config.api.username}
