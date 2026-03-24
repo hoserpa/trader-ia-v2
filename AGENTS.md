@@ -4,7 +4,7 @@
 
 This is a Python-based cryptocurrency trading bot using LightGBM ML model, FastAPI backend, and Vue.js frontend. It connects to Coinbase Advanced Trade API for live trading.
 
-- **Python**: 3.11
+- **Python**: 3.11 (via Docker)
 - **Main Dependencies**: ccxt, pandas, lightgbm, fastapi, sqlalchemy, redis, loguru
 - **Database**: SQLite + Redis
 - **Target**: Raspberry Pi 3 (ARM), Docker deployment
@@ -223,13 +223,87 @@ API_PASSWORD=changeme
 
 ## Docker Development
 
+### Requisitos
+
+- Docker y Docker Compose instalados
+- Raspberry Pi 3 con Raspberry Pi OS (Bullseye/Bookworm)
+
+### Archivos Docker
+
+- `Dockerfile` - Imagen Python 3.11 slim con dependencias
+- `docker-compose.yml` - Servicios: redis, bot, api
+
+### Comandos
+
 ```bash
-# Build and run all services
+# 1. Configurar variables de entorno
+cp .env.example .env
+nano .env
+
+# 2. Construir y ejecutar todos los servicios
 docker-compose up -d --build
 
-# View logs
-docker-compose logs -f bot
+# 3. Ver logs
+docker-compose logs -f        # todos los servicios
+docker-compose logs -f bot    # solo el bot
+docker-compose logs -f api    # solo la API
 
-# Restart service
+# 4. Estado de servicios
+docker-compose ps
+
+# 5. Reiniciar servicio específico
 docker-compose restart bot
+docker-compose restart api
+
+# 6. Detener servicios
+docker-compose down
+
+# 7. Reconstruir un servicio
+docker-compose build bot
+docker-compose up -d bot
+```
+
+### Raspberry Pi - Notas especiales
+
+```bash
+# Verificar arquitectura ARM
+uname -m  # debe mostrar armv7l o aarch64
+
+# Raspberry Pi 3 (ARM32): puede requerir compilación de dependencias
+# Solución: usar imagen python:3.11-slim y confiar en wheels precompilados
+
+# Si hay problemas de dependencias nativas, instalar build-essential:
+sudo apt install build-essential libffi-dev libssl-dev
+```
+
+### Desarrollo
+
+```bash
+# Modo desarrollo con live reload
+docker-compose up -d --build
+
+# Editar código en host y los cambios se reflejan automáticamente
+# (API tiene --reload, Bot requiere reiniciar)
+
+# Acceder a contenedores
+docker exec -it crypto_bot /bin/bash
+docker exec -it crypto_api /bin/bash
+docker exec -it crypto_redis redis-cli
+```
+
+### Troubleshooting
+
+```bash
+# Verificar que Redis esté funcionando
+docker-compose logs redis
+
+# Reiniciar Redis
+docker-compose restart redis
+
+# Ver uso de recursos
+docker stats
+
+# Limpiar volúmenes si hay problemas
+docker-compose down -v
+docker-compose up -d --build
 ```

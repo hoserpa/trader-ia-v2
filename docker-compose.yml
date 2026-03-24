@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: crypto_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: crypto_bot
+    command: python bot/main.py
+    volumes:
+      - ./bot/model:/app/model
+      - ./data:/app/data
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - crypto_network
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: crypto_api
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./bot/model:/app/model
+      - ./data:/app/data
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - crypto_network
+
+volumes:
+  redis_data:
+
+networks:
+  crypto_network:
+    driver: bridge

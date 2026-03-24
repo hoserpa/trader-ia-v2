@@ -14,24 +14,47 @@ Bot de trading automatizado de criptomonedas usando aprendizaje automático (Lig
 
 ## Requisitos
 
-- Python 3.11+
-- Redis
-- SQLite
-- (Opcional) Docker para despliegue
+- Python 3.11+ (incluido en Docker)
+- Redis (incluido en Docker)
+- Docker + Docker Compose
+- (Opcional) Git para clonar el repositorio
 
 ## Instalación
 
+### Opción 1: Docker (Recomendado para Raspberry Pi)
+
 ```bash
-# Clonar repositorio
+# 1. Clonar repositorio
 git clone https://github.com/hoserpa/trader-ia-v2.git
 cd trader-ia-v2
 
-# Copiar configuración
+# 2. Copiar configuración
 cp .env.example .env
+nano .env  # Editar con tus valores
 
+# 3. Ejecutar servicios
+docker-compose up -d --build
+
+# 4. Verificar estado
+docker-compose ps
+docker-compose logs -f
+```
+
+### Opción 2: Local (Desarrollo)
+
+```bash
 # Instalar dependencias
 pip install -r bot/requirements.txt
 pip install -r api/requirements.txt
+
+# Ejecutar Redis
+docker run -d -p 6379:6379 redis:7-alpine
+
+# Ejecutar bot
+cd bot && python main.py
+
+# Ejecutar API (en otra terminal)
+cd api && uvicorn main:app --reload
 ```
 
 ## Configuración
@@ -72,11 +95,40 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 
 Acceder a `http://localhost:8000` para ver el dashboard.
 
-### Docker
+### Docker (Recomendado)
 
 ```bash
-docker-compose up -d
+# Iniciar todos los servicios
+docker-compose up -d --build
+
+# Ver logs en tiempo real
+docker-compose logs -f
+
+# Detener servicios
+docker-compose down
+
+# Reiniciar un servicio específico
+docker-compose restart bot
 ```
+
+### Raspberry Pi
+
+El proyecto está optimizado para Raspberry Pi 3 (ARM). Todos los servicios se ejecutan via Docker:
+
+```bash
+# En la Raspberry Pi
+docker-compose up -d --build
+
+# Verificar recursos
+docker stats
+
+# Acceso a contenedores
+docker exec -it crypto_bot /bin/bash
+docker exec -it crypto_api /bin/bash
+docker exec -it crypto_redis redis-cli
+```
+
+**Nota**: El directorio `./data` se monta automáticamente para persistencia de la base de datos SQLite.
 
 ## Estructura del Proyecto
 
