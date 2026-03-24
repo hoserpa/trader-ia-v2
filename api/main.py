@@ -4,6 +4,8 @@ import secrets
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 import redis.asyncio as aioredis
 import sys
 import os
@@ -16,6 +18,14 @@ from routers import portfolio, trades, market, bot, logs
 app = FastAPI(title="Crypto Trader Bot API", version="1.0.0")
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend")
+
+app.mount("/static", StaticFiles(directory=os.path.join(frontend_path, "css")), name="static")
+
+@app.get("/")
+async def root():
+    return FileResponse(os.path.join(frontend_path, "index.html"))
 
 security = HTTPBasic()
 
