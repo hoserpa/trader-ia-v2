@@ -143,7 +143,51 @@ frontend/
 
 ## Entrenamiento del Modelo
 
-El modelo debe entrenarse con datos históricos. Ubicar `trained_model.pkl` y `scaler.pkl` en la ruta configurada en `MODEL_PATH`.
+El modelo LightGBM debe entrenarse externamente (PC o Google Colab) y los archivos resultantes copiarse a la Raspberry Pi.
+
+### Pipeline de Entrenamiento
+
+```bash
+# 1. Instalar dependencias
+pip install -r training/requirements_training.txt
+
+# 2. Descargar datos históricos (mínimo 1 año)
+python training/fetch_historical_data.py --pairs BTC-EUR,ETH-EUR --days 365
+
+# 3. Generar features y etiquetas
+python training/feature_engineering.py
+
+# 4. Entrenar modelo
+python training/train_model.py
+
+# 5. Evaluar (métricas, backtest)
+python training/evaluate_model.py
+
+# 6. Exportar a bot/model/
+python training/export_model.py --target bot/model
+```
+
+### Métricas Mínimas (para producción)
+
+| Métrica | Mínimo |
+|---------|--------|
+| Precision BUY/SELL | ≥ 0.60 |
+| Sharpe Ratio | ≥ 1.0 |
+| Max Drawdown | ≤ 15% |
+
+### Google Colab (Gratuito)
+
+1. Sube los scripts de `training/` a Colab
+2. Ejecuta los pasos 1-5
+3. Descarga: `trained_model.pkl`, `scaler.pkl`, `model_metadata.json`
+4. Copia a la RPi: `scp *.pkl pi@[ip]:~/trader-ia-v2/bot/model/`
+
+### Archivos del Modelo
+
+Los archivos deben ubicarse en:
+- `bot/model/trained_model.pkl` - Modelo entrenado
+- `bot/model/scaler.pkl` - Normalizador RobustScaler
+- `bot/model/model_metadata.json` - Métricas y configuración
 
 ## Licencia
 
