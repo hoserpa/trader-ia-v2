@@ -1,0 +1,27 @@
+# Core
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Trading
+ccxt>=4.0.0
+
+# ML
+lightgbm>=4.0.0
+scikit-learn>=1.3.0
+
+# Database
+sqlalchemy>=2.0.0
+redis>=5.0.0
+aioredis>=2.0.1
+
+# Scheduling
+apscheduler>=3.10.0
+
+# HTTP
+httpx>=0.25.0
+
+# Logging
+loguru>=0.7.0
+
+# Config
+python-dotenv>=1.0.0

@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Crypto Trader Bot</title>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <div class="topbar-left">
+      <span class="logo">🤖 CryptoBot</span>
+      <span class="badge" :class="modeClass">{{ botStatus.mode?.toUpperCase() || 'DEMO' }}</span>
+      <span class="status-dot" :class="statusClass"></span>
+      <span class="status-text">{{ botStatus.status || 'Conectando...' }}</span>
+    </div>
+    <div class="topbar-prices">
+      <span v-for="(price, pair) in prices" :key="pair" class="price-chip">
+        {{ pair }}: <strong>{{ formatPrice(price) }}€</strong>
+      </span>
+    </div>
+  </header>
+
+  <section class="cards">
+    <div class="card">
+      <div class="card-label">Portfolio total</div>
+      <div class="card-value">{{ formatPrice(portfolio.total_value_eur) }}€</div>
+      <div class="card-sub" :class="portfolio.total_pnl_eur >= 0 ? 'positive' : 'negative'">
+        {{ portfolio.total_pnl_eur >= 0 ? '+' : '' }}{{ formatPrice(portfolio.total_pnl_eur) }}€ ({{ portfolio.total_pnl_pct?.toFixed(2) }}%)
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-label">Balance libre</div>
+      <div class="card-value">{{ formatPrice(portfolio.balance_eur) }}€</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Posiciones abiertas</div>
+      <div class="card-value">{{ openPositions.length }}</div>
+      <div class="card-sub">máx. {{ botConfig.risk?.max_open_positions || 3 }}</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Win rate</div>
+      <div class="card-value">{{ stats.win_rate?.toFixed(1) || '—' }}%</div>
+      <div class="card-sub">{{ stats.closed_positions || 0 }} operaciones cerradas</div>
+    </div>
+  </section>
+
+  <section class="chart-section">
+    <div class="section-header">
+      <h2>Evolución del portfolio</h2>
+      <div class="period-selector">
+        <button v-for="d in [7,30,90]" :key="d" @click="loadPortfolioHistory(d)" :class="{active: historyDays===d}">{{ d }}d</button>
+      </div>
+    </div>
+    <canvas id="portfolioChart" height="80"></canvas>
+  </section>
+
+  <section class="signals-section">
+    <h2>Señales actuales</h2>
+    <div class="signals-grid">
+      <div v-for="sig in latestSignals" :key="sig.pair" class="signal-card">
+        <div class="signal-pair">{{ sig.pair }}</div>
+        <div class="signal-badge" :class="signalClass(sig.signal)">{{ sig.signal }}</div>
+        <div class="signal-confidence">{{ (sig.confidence * 100).toFixed(1) }}% confianza</div>
+        <div class="signal-bars">
+          <div class="bar-row"><span>BUY</span><div class="bar"><div class="bar-fill buy" :style="{width: (sig.prob_buy*100)+'%'}"></div></div><span>{{ (sig.prob_buy*100).toFixed(0) }}%</span></div>
+          <div class="bar-row"><span>HOLD</span><div class="bar"><div class="bar-fill hold" :style="{width: (sig.prob_hold*100)+'%'}"></div></div><span>{{ (sig.prob_hold*100).toFixed(0) }}%</span></div>
+          <div class="bar-row"><span>SELL</span><div class="bar"><div class="bar-fill sell" :style="{width: (sig.prob_sell*100)+'%'}"></div></div><span>{{ (sig.prob_sell*100).toFixed(0) }}%</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section v-if="openPositions.length">
+    <h2>Posiciones abiertas</h2>
+    <table class="data-table">
+      <thead><tr><th>Par</th><th>Entrada</th><th>Actual</th><th>PnL</th><th>Stop-loss</th><th>Take-profit</th></tr></thead>
+      <tbody>
+        <tr v-for="(pos, pair) in portfolio.positions" :key="pair">
+          <td>{{ pair }}</td>
+          <td>{{ formatPrice(pos.entry_price) }}€</td>
+          <td>{{ formatPrice(pos.current_price) }}€</td>
+          <td :class="pos.pnl_eur >= 0 ? 'positive' : 'negative'">{{ pos.pnl_eur >= 0 ? '+' : '' }}{{ formatPrice(pos.pnl_eur) }}€ ({{ pos.pnl_pct?.toFixed(2) }}%)</td>
+          <td class="negative">{{ formatPrice(pos.stop_loss_price) }}€</td>
+          <td class="positive">{{ formatPrice(pos.take_profit_price) }}€</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Historial de trades</h2>
+    <table class="data-table">
+      <thead><tr><th>Fecha</th><th>Par</th><th>Tipo</th><th>Precio</th><th>EUR</th><th>Comisión</th></tr></thead>
+      <tbody>
+        <tr v-for="t in trades" :key="t.id">
+          <td>{{ formatDate(t.timestamp) }}</td>
+          <td>{{ t.pair }}</td>
+          <td><span class="badge" :class="t.side === 'buy' ? 'badge-buy' : 'badge-sell'">{{ t.side.toUpperCase() }}</span></td>
+          <td>{{ formatPrice(t.price) }}€</td>
+          <td>{{ formatPrice(t.amount_eur) }}€</td>
+          <td>{{ formatPrice(t.fee_eur) }}€</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Log del sistema</h2>
+    <div class="log-container" ref="logContainer">
+      <div v-for="log in systemLogs" :key="log.id" class="log-line" :class="'log-'+log.level.toLowerCase()">
+        <span class="log-time">{{ formatDate(log.timestamp) }}</span>
+        <span class="log-level">{{ log.level }}</span>
+        <span class="log-module">{{ log.module }}</span>
+        <span class="log-msg">{{ log.message }}</span>
+      </div>
+    </div>
+  </section>
+</div>
+<script src="/js/app.js"></script>
+</body>
+</html>

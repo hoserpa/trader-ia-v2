@@ -1,0 +1,199 @@
+"""Orquestador principal del ciclo de análisis y trading."""
+import asyncio
+import json
+from datetime import datetime
+from loguru import logger
+import redis.asyncio as aioredis
+from config import config
+from data.collector import DataCollector
+from indicators.technical import calculate_indicators, get_atr, get_current_price
+from indicators.features import FeatureBuilder
+from model.predictor import ModelPredictor
+from trading.risk_manager import RiskManager
+from trading.portfolio import Portfolio
+from trading.demo_trader import DemoTrader
+from trading.real_trader import RealTrader
+from notifications.telegram import TelegramNotifier
+from database.crud import (
+    save_decision, save_portfolio_snapshot, get_open_position_by_pair, get_open_positions
+)
+from database.init_db import SessionLocal
+
+
+class TradingEngine:
+    """Ciclo principal de análisis y ejecución de señales."""
+
+    def __init__(self, redis_client: aioredis.Redis):
+        self.redis = redis_client
+        self.collector = DataCollector(redis_client)
+        self.feature_builder = FeatureBuilder()
+        self.predictor = ModelPredictor()
+        self.risk_manager = RiskManager()
+        self.portfolio = Portfolio(redis_client)
+        self.telegram = TelegramNotifier()
+        self._running = False
+        self._status = "stopped"
+
+        if config.trading.is_demo():
+            self.trader = DemoTrader(self.portfolio, self.risk_manager)
+            logger.info("Modo DEMO activado — no se realizarán operaciones reales.")
+        else:
+            self.trader = RealTrader(self.portfolio, self.risk_manager)
+            logger.warning("⚠️  Modo REAL activado — se operará con dinero real.")
+
+    async def start(self) -> None:
+        self._running = True
+        self._status = "running"
+        await self._publish_status()
+        logger.info(f"Motor de trading iniciado. Intervalo: {config.trading.analysis_interval}s")
+        await asyncio.gather(
+            self.collector.start(),
+            self._analysis_loop(),
+        )
+
+    async def stop(self) -> None:
+        self._running = False
+        self._status = "stopped"
+        await self.collector.stop()
+        await self._publish_status()
+        logger.info("Motor de trading detenido.")
+
+    async def _analysis_loop(self) -> None:
+        """Ciclo periódico de análisis y decisión."""
+        await asyncio.sleep(30)
+
+        while self._running:
+            start_time = asyncio.get_event_loop().time()
+
+            for pair in config.trading.pairs:
+                try:
+                    await self._analyze_pair(pair)
+                except Exception as e:
+                    logger.error(f"Error analizando {pair}: {e}")
+                    self._status = "error"
+
+            await self._save_portfolio_snapshot()
+            await self._publish_status()
+
+            self.predictor.reload_if_updated()
+
+            elapsed = asyncio.get_event_loop().time() - start_time
+            sleep_time = max(0, config.trading.analysis_interval - elapsed)
+            logger.debug(f"Ciclo completado en {elapsed:.1f}s. Siguiente en {sleep_time:.0f}s.")
+            await asyncio.sleep(sleep_time)
+
+    async def _analyze_pair(self, pair: str) -> None:
+        """Análisis completo de un par: datos → indicadores → features → señal → ejecución."""
+        candles = await self.collector.get_latest_candles(pair, limit=config.trading.candles_required)
+        if candles.empty or len(candles) < 55:
+            logger.debug(f"{pair}: datos insuficientes ({len(candles)} velas)")
+            return
+
+        candles_with_indicators = calculate_indicators(candles)
+        atr = get_atr(candles_with_indicators)
+        current_price = await self.collector.get_current_price(pair) or get_current_price(candles_with_indicators)
+
+        features = self.feature_builder.build_features(candles_with_indicators)
+        if features is None:
+            return
+
+        if not self.predictor.is_model_loaded():
+            logger.debug(f"{pair}: modelo no cargado, usando señal HOLD")
+            signal = {"signal": "HOLD", "confidence": 0.0, "probabilities": {"BUY": 0.0, "SELL": 0.0, "HOLD": 1.0}}
+        else:
+            signal = self.predictor.predict(features)
+            if signal is None:
+                return
+
+        logger.info(f"📊 {pair} | precio={current_price:.2f}€ | señal={signal['signal']} ({signal['confidence']:.0%}) | ATR={atr:.2f}")
+
+        await self.redis.publish("bot:live_updates", json.dumps({
+            "type": "signal",
+            "data": {**signal, "pair": pair, "price": current_price, "atr": atr,
+                     "atr_pct": atr / current_price if current_price > 0 else 0}
+        }))
+
+        db = SessionLocal()
+        try:
+            open_position = get_open_position_by_pair(db, pair)
+        finally:
+            db.close()
+
+        executed = False
+        rejection_reason = None
+
+        if open_position:
+            should_sell, sell_reason = self.risk_manager.can_sell(pair, open_position, signal, current_price)
+            if should_sell:
+                trade = self.trader.execute_sell(pair, open_position, current_price, sell_reason)
+                if trade:
+                    executed = True
+                    await self.redis.publish("bot:live_updates", json.dumps({"type": "trade_executed", "data": trade}))
+                    await self.telegram.notify_position_closed(trade, trade.get("pnl_eur", 0))
+        else:
+            portfolio_state = self.portfolio.get()
+            prices = {p: await self.collector.get_current_price(p) or 0 for p in config.trading.pairs}
+            portfolio_state = self.portfolio.update_valuations(prices)
+
+            can_buy, reason, amount_eur = self.risk_manager.can_buy(
+                pair, signal, portfolio_state, current_price, atr
+            )
+            if can_buy:
+                if config.trading.is_demo():
+                    trade = self.trader.execute_buy(pair, amount_eur, current_price, atr)
+                else:
+                    trade = await self.trader.execute_buy(pair, amount_eur, current_price, atr)
+
+                if trade:
+                    executed = True
+                    await self.redis.publish("bot:live_updates", json.dumps({"type": "trade_executed", "data": trade}))
+                    await self.telegram.notify_trade(trade)
+            else:
+                rejection_reason = reason
+                if signal["signal"] != "HOLD":
+                    logger.debug(f"  ↳ Señal {signal['signal']} rechazada: {reason}")
+
+        db = SessionLocal()
+        try:
+            save_decision(db, {
+                "pair": pair,
+                "signal": signal["signal"],
+                "confidence": signal["confidence"],
+                "prob_buy": signal["probabilities"].get("BUY", 0),
+                "prob_sell": signal["probabilities"].get("SELL", 0),
+                "prob_hold": signal["probabilities"].get("HOLD", 1),
+                "executed": executed,
+                "rejection_reason": rejection_reason,
+            })
+        finally:
+            db.close()
+
+    async def _save_portfolio_snapshot(self) -> None:
+        """Guarda snapshot del portafolio actual en DB."""
+        prices = {}
+        for pair in config.trading.pairs:
+            price = await self.collector.get_current_price(pair)
+            if price:
+                prices[pair] = price
+        state = self.portfolio.update_valuations(prices)
+
+        db = SessionLocal()
+        try:
+            save_portfolio_snapshot(db, state)
+        finally:
+            db.close()
+
+        await self.redis.publish("bot:live_updates", json.dumps({"type": "portfolio_update", "data": state}))
+
+    async def _publish_status(self) -> None:
+        await self.redis.set("bot:status", json.dumps({
+            "status": self._status,
+            "mode": config.trading.mode,
+            "pairs": config.trading.pairs,
+            "model_loaded": self.predictor.is_model_loaded(),
+            "last_update": datetime.utcnow().isoformat(),
+        }))
+        await self.redis.publish("bot:live_updates", json.dumps({
+            "type": "bot_status",
+            "data": {"status": self._status, "mode": config.trading.mode}
+        }))
