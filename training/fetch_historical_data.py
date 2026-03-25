@@ -5,7 +5,7 @@ Usage:
 """
 import argparse
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import ccxt.async_support as ccxt
 import pandas as pd
@@ -80,7 +80,7 @@ async def main():
     parser.add_argument("--timeframe", type=str, default="5m", help="Timeframe (1m, 5m, 15m, 1h, 4h, 1d)")
     parser.add_argument("--days", type=int, default=365, help="Días hacia atrás")
     parser.add_argument("--output", type=str, default="output/data", help="Directorio de salida")
-    parser.add_argument("--exchange", type=str, default="binance", help="Exchange (binance, coinbase, etc)")
+    parser.add_argument("--exchange", type=str, default="coinbase", help="Exchange (binance, coinbase, kraken, etc)")
     args = parser.parse_args()
     
     output_dir = Path(args.output)
@@ -89,7 +89,7 @@ async def main():
     exchange = getattr(ccxt, args.exchange)()
     
     pairs = [p.strip() for p in args.pairs.split(",")]
-    end_date = datetime.utcnow()
+    end_date = datetime.now(timezone.utc)
     start_date = end_date - timedelta(days=args.days)
     
     logger.info(f"Descarga iniciada: {args.days} días de datos en timeframe {args.timeframe}")
