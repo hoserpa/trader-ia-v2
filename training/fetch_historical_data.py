@@ -87,7 +87,6 @@ async def main():
     output_dir.mkdir(parents=True, exist_ok=True)
     
     exchange_config = {
-        "enableRateLimit": True,
         "options": {"defaultType": "spot"}
     }
     
