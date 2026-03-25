@@ -88,7 +88,18 @@ def run_backtest(df: pd.DataFrame, model, scaler, threshold: float, initial_cash
     entries = (signals == 1).values
     exits = (signals == -1).values
     
-    logger.info(f"Entries: {np.sum(entries)}, Exits: {np.sum(exits)}")
+    valid_exits = np.zeros(len(signals), dtype=bool)
+    position_open = False
+    for i in range(len(signals)):
+        if entries[i]:
+            position_open = True
+        if exits[i] and position_open:
+            valid_exits[i] = True
+            position_open = False
+    
+    exits = valid_exits
+    
+    logger.info(f"Entries: {np.sum(entries)}, Exits (validos): {np.sum(exits)}")
     
     pf = vbt.Portfolio.from_signals(
         close=close,
