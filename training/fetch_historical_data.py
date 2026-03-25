@@ -86,19 +86,15 @@ async def main():
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    exchange_config = {
-        "options": {"defaultType": "spot"}
-    }
+    exchange = ccxt.coinbase()
     
     if args.sandbox:
-        exchange_config["urls"] = {
+        exchange.urls = {
             "api": {
                 "public": "https://api-public.sandbox.exchange.coinbase.com",
                 "private": "https://api-public.sandbox.exchange.coinbase.com"
             }
         }
-    
-    exchange = ccxt.coinbase(**exchange_config)
     
     pairs = [p.strip() for p in args.pairs.split(",")]
     end_date = datetime.utcnow()
