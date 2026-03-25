@@ -94,21 +94,22 @@ def run_backtest(df: pd.DataFrame, model, scaler, threshold: float, initial_cash
     fee_rate = 0.001
     stop_loss = 0.02
     take_profit = 0.04
+    position_size = 0.1
     
     for i in range(len(signals)):
         sig = signals.iloc[i]
         price = close[i]
         
         if sig == 1 and position == 0:
-            position = cash / price
+            position = (cash * position_size) / price
             entry_price = price
-            cash = 0
+            cash = cash - (position * price)
             
         elif sig == -1 and position > 0:
             proceeds = position * price
             proceeds *= (1 - fee_rate)
             pnl = proceeds - (position * entry_price)
-            cash = proceeds
+            cash = cash + proceeds
             trades.append(pnl)
             position = 0
             entry_price = 0
@@ -118,14 +119,14 @@ def run_backtest(df: pd.DataFrame, model, scaler, threshold: float, initial_cash
             if pnl_pct <= -stop_loss:
                 proceeds = position * price * (1 - fee_rate)
                 pnl = proceeds - (position * entry_price)
-                cash = proceeds
+                cash = cash + proceeds
                 trades.append(pnl)
                 position = 0
                 entry_price = 0
             elif pnl_pct >= take_profit:
                 proceeds = position * price * (1 - fee_rate)
                 pnl = proceeds - (position * entry_price)
-                cash = proceeds
+                cash = cash + proceeds
                 trades.append(pnl)
                 position = 0
                 entry_price = 0
@@ -133,7 +134,13 @@ def run_backtest(df: pd.DataFrame, model, scaler, threshold: float, initial_cash
         equity = cash + position * price
         equity_curve.append(equity)
     
-    final_equity = equity_curve[-1]
+    if position > 0:
+        proceeds = position * close[-1] * (1 - fee_rate)
+        pnl = proceeds - (position * entry_price)
+        cash = cash + proceeds
+        trades.append(pnl)
+    
+    final_equity = cash + position * close[-1]
     total_return = (final_equity - initial_cash) / initial_cash
     
     equity_series = pd.Series(equity_curve)
