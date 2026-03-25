@@ -83,8 +83,12 @@ def run_backtest(df: pd.DataFrame, model, scaler, threshold: float, initial_cash
     signals = pd.Series(signals, index=df.index)
     close = df["close"].values
     
+    logger.info(f"Distribución de señales: BUY={np.sum(signals==1)}, SELL={np.sum(signals==-1)}, HOLD={np.sum(signals==0)}")
+    
     entries = (signals == 1).values
     exits = (signals == -1).values
+    
+    logger.info(f"Entries: {np.sum(entries)}, Exits: {np.sum(exits)}")
     
     pf = vbt.Portfolio.from_signals(
         close=close,
