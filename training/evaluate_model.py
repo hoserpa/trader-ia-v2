@@ -50,7 +50,7 @@ def calculate_max_drawdown(equity: pd.Series) -> float:
         return 0.0
     cummax = equity.cummax()
     drawdown = (equity - cummax) / cummax
-    return abs(drawdown.min())
+    return -drawdown.min() if drawdown.min() < 0 else 0.0
 
 
 def run_backtest(df: pd.DataFrame, model, scaler, threshold: float, initial_cash: float = 10000):
