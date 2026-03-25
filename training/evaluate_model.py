@@ -183,6 +183,8 @@ def main():
     df = pd.read_parquet(args.data)
     df = df.sort_values("timestamp").reset_index(drop=True)
     
+    logger.info(f"Datos - close min: {df['close'].min():.4f}, max: {df['close'].max():.4f}, mean: {df['close'].mean():.4f}")
+    
     X = df[FEATURE_COLS].values
     X = scaler.transform(X)
     y = df["label"].astype(int).values
