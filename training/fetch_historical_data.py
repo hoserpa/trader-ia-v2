@@ -89,7 +89,7 @@ async def main():
     exchange = getattr(ccxt, args.exchange)()
     
     pairs = [p.strip() for p in args.pairs.split(",")]
-    end_date = datetime.now(timezone.utc)
+    end_date = datetime.now(timezone.utc).replace(tzinfo=None)
     start_date = end_date - timedelta(days=args.days)
     
     logger.info(f"Descarga iniciada: {args.days} días de datos en timeframe {args.timeframe}")
