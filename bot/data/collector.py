@@ -13,7 +13,7 @@ from database.init_db import SessionLocal
 
 
 class DataCollector:
-    """Gestiona la conexión con Coinbase Advanced Trade.
+    """Gestiona la conexión con el exchange configurado.
     Almacena velas OHLCV en Redis (caché) y SQLite (histórico).
     Publica eventos en canal Redis 'new_candle' para el motor de trading.
     """
@@ -30,16 +30,15 @@ class DataCollector:
         self._reconnect_delay = 5
         self._max_reconnect_delay = 300
 
-    def _build_exchange(self) -> ccxt.coinbase:
+    def _build_exchange(self):
+        exchange_id = config.exchange.name.lower()
         params = {
-            "apiKey": config.coinbase.api_key,
-            "secret": config.coinbase.api_secret,
+            "apiKey": config.exchange.api_key,
+            "secret": config.exchange.api_secret,
             "enableRateLimit": True,
             "options": {"defaultType": "spot"},
         }
-        if config.coinbase.sandbox:
-            params["urls"] = {"api": {"public": "https://api-public.sandbox.exchange.coinbase.com"}}
-        return ccxt.coinbase(params)
+        return getattr(ccxt, exchange_id)(params)
 
     async def start(self) -> None:
         self._running = True

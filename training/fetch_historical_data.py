@@ -1,7 +1,7 @@
-"""Descarga datos históricos de Coinbase Advanced Trade.
+"""Descarga datos históricos del exchange configurado.
 
 Usage:
-    python fetch_historical_data.py --pairs BTC-EUR,ETH-EUR --timeframe 5m --days 365
+    python fetch_historical_data.py --pairs BTC/EUR,ETH/EUR --timeframe 5m --days 365
 """
 import argparse
 import asyncio
@@ -75,26 +75,18 @@ async def download_pair_data(
 
 
 async def main():
-    parser = argparse.ArgumentParser(description="Descarga datos históricos de Coinbase")
-    parser.add_argument("--pairs", type=str, default="BTC-EUR,ETH-EUR", help="Pares separados por coma")
+    parser = argparse.ArgumentParser(description="Descarga datos históricos del exchange")
+    parser.add_argument("--pairs", type=str, default="BTC/EUR,ETH/EUR,SOL/EUR", help="Pares separados por coma")
     parser.add_argument("--timeframe", type=str, default="5m", help="Timeframe (1m, 5m, 15m, 1h, 4h, 1d)")
     parser.add_argument("--days", type=int, default=365, help="Días hacia atrás")
     parser.add_argument("--output", type=str, default="output/data", help="Directorio de salida")
-    parser.add_argument("--sandbox", action="store_true", help="Usar sandbox de Coinbase")
+    parser.add_argument("--exchange", type=str, default="binance", help="Exchange (binance, coinbase, etc)")
     args = parser.parse_args()
     
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    exchange = ccxt.coinbase()
-    
-    if args.sandbox:
-        exchange.urls = {
-            "api": {
-                "public": "https://api-public.sandbox.exchange.coinbase.com",
-                "private": "https://api-public.sandbox.exchange.coinbase.com"
-            }
-        }
+    exchange = getattr(ccxt, args.exchange)()
     
     pairs = [p.strip() for p in args.pairs.split(",")]
     end_date = datetime.utcnow()

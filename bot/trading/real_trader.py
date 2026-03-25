@@ -1,4 +1,4 @@
-"""Motor de trading real via Coinbase Advanced Trade API."""
+"""Motor de trading real via Exchange API."""
 import asyncio
 from datetime import datetime
 import ccxt.async_support as ccxt
@@ -11,7 +11,7 @@ from trading.risk_manager import RiskManager
 
 
 class RealTrader:
-    """Ejecuta operaciones reales en Coinbase Advanced Trade.
+    """Ejecuta operaciones reales en el exchange configurado.
     
     ADVERTENCIA: Opera con dinero real. Usar solo tras validación exhaustiva en demo.
     """
@@ -24,9 +24,10 @@ class RealTrader:
         self.risk = risk_manager
         self._consecutive_errors = 0
         self._circuit_open = False
-        self.exchange = ccxt.coinbase({
-            "apiKey": config.coinbase.api_key,
-            "secret": config.coinbase.api_secret,
+        exchange_id = config.exchange.name.lower()
+        self.exchange = getattr(ccxt, exchange_id)({
+            "apiKey": config.exchange.api_key,
+            "secret": config.exchange.api_secret,
             "enableRateLimit": True,
         })
 
@@ -36,7 +37,7 @@ class RealTrader:
 
     async def execute_buy(self, pair: str, amount_eur: float, current_price: float, atr: float) -> dict:
         self._check_circuit_breaker()
-        amount_crypto = (amount_eur * (1 - config.risk.coinbase_taker_fee)) / current_price
+        amount_crypto = (amount_eur * (1 - config.exchange.taker_fee)) / current_price
 
         for attempt in range(self.MAX_RETRIES):
             try:
@@ -46,7 +47,7 @@ class RealTrader:
                 self._consecutive_errors = 0
                 filled_price = order.get("average", current_price)
                 filled_amount = order.get("filled", amount_crypto)
-                fee_eur = order.get("fee", {}).get("cost", amount_eur * config.risk.coinbase_taker_fee)
+                fee_eur = order.get("fee", {}).get("cost", amount_eur * config.exchange.taker_fee)
 
                 stop_loss = self.risk.calculate_stop_loss(filled_price, atr)
                 take_profit = self.risk.calculate_take_profit(filled_price, atr)
@@ -99,7 +100,7 @@ class RealTrader:
                 self._consecutive_errors = 0
                 filled_price = order.get("average", current_price)
                 gross_eur = position.amount_crypto * filled_price
-                fee_eur = order.get("fee", {}).get("cost", gross_eur * config.risk.coinbase_taker_fee)
+                fee_eur = order.get("fee", {}).get("cost", gross_eur * config.exchange.taker_fee)
                 pnl_eur = (gross_eur - fee_eur) - position.amount_eur_invested
 
                 db = SessionLocal()

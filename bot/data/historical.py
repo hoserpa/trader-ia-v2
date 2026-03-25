@@ -13,9 +13,10 @@ async def fetch_and_store_historical(pair: str, days: int = 90) -> int:
     """Descarga el histórico de los últimos N días para un par.
     Retorna el número de velas almacenadas.
     """
-    exchange = ccxt.coinbase({
-        "apiKey": config.coinbase.api_key,
-        "secret": config.coinbase.api_secret,
+    exchange_id = config.exchange.name.lower()
+    exchange = getattr(ccxt, exchange_id)({
+        "apiKey": config.exchange.api_key,
+        "secret": config.exchange.api_secret,
         "enableRateLimit": True,
     })
 

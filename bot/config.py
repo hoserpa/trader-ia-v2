@@ -7,16 +7,17 @@ load_dotenv()
 
 
 @dataclass
-class CoinbaseConfig:
-    api_key: str = field(default_factory=lambda: os.getenv("COINBASE_API_KEY", ""))
-    api_secret: str = field(default_factory=lambda: os.getenv("COINBASE_API_SECRET", ""))
-    sandbox: bool = field(default_factory=lambda: os.getenv("COINBASE_SANDBOX", "false").lower() == "true")
+class ExchangeConfig:
+    name: str = field(default_factory=lambda: os.getenv("EXCHANGE", "binance"))
+    api_key: str = field(default_factory=lambda: os.getenv("BINANCE_API_KEY", ""))
+    api_secret: str = field(default_factory=lambda: os.getenv("BINANCE_API_SECRET", ""))
+    taker_fee: float = 0.001  # Binance taker fee ~0.1%
 
 
 @dataclass
 class TradingConfig:
     mode: str = field(default_factory=lambda: os.getenv("TRADING_MODE", "demo"))
-    pairs: list = field(default_factory=lambda: os.getenv("TRADING_PAIRS", "BTC-EUR,ETH-EUR").split(","))
+    pairs: list = field(default_factory=lambda: os.getenv("TRADING_PAIRS", "BTC/EUR,ETH/EUR,SOL/EUR").split(","))
     base_currency: str = field(default_factory=lambda: os.getenv("BASE_CURRENCY", "EUR"))
     demo_initial_balance: float = field(default_factory=lambda: float(os.getenv("DEMO_INITIAL_BALANCE", "1000.0")))
     analysis_interval: int = field(default_factory=lambda: int(os.getenv("ANALYSIS_INTERVAL_SECONDS", "300")))
@@ -38,7 +39,6 @@ class RiskConfig:
     max_daily_trades: int = field(default_factory=lambda: int(os.getenv("MAX_DAILY_TRADES", "20")))
     high_volatility_atr_threshold: float = field(default_factory=lambda: float(os.getenv("HIGH_VOLATILITY_ATR_THRESHOLD", "0.05")))
     min_trade_eur: float = 10.0
-    coinbase_taker_fee: float = 0.006
 
 
 @dataclass
@@ -80,7 +80,7 @@ class LogConfig:
 
 @dataclass
 class AppConfig:
-    coinbase: CoinbaseConfig = field(default_factory=CoinbaseConfig)
+    exchange: ExchangeConfig = field(default_factory=ExchangeConfig)
     trading: TradingConfig = field(default_factory=TradingConfig)
     risk: RiskConfig = field(default_factory=RiskConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
@@ -91,8 +91,8 @@ class AppConfig:
 
     def validate(self) -> None:
         if not self.trading.is_demo():
-            if not self.coinbase.api_key or not self.coinbase.api_secret:
-                raise ValueError("COINBASE_API_KEY y COINBASE_API_SECRET son obligatorios en modo real.")
+            if not self.exchange.api_key or not self.exchange.api_secret:
+                raise ValueError("BINANCE_API_KEY y BINANCE_API_SECRET son obligatorios en modo real.")
         if self.trading.mode not in ("demo", "real"):
             raise ValueError(f"TRADING_MODE inválido: {self.trading.mode}. Debe ser 'demo' o 'real'.")
 

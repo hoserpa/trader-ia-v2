@@ -192,10 +192,12 @@ Create `.env` file in project root:
 ```env
 # Trading
 TRADING_MODE=demo
-TRADING_PAIRS=BTC-EUR,ETH-EUR
-COINBASE_API_KEY=
-COINBASE_API_SECRET=
-COINBASE_SANDBOX=true
+TRADING_PAIRS=BTC/EUR,ETH/EUR,SOL/EUR
+EXCHANGE=binance
+
+# Exchange API
+BINANCE_API_KEY=
+BINANCE_API_SECRET=
 
 # Database
 SQLITE_DB_PATH=/app/data/crypto_trader.db

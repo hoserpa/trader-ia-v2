@@ -17,7 +17,7 @@ class DemoTrader:
 
     def execute_buy(self, pair: str, amount_eur: float, current_price: float, atr: float) -> dict:
         """Simula una compra. Retorna el dict del trade creado."""
-        fee = amount_eur * config.risk.coinbase_taker_fee
+        fee = amount_eur * config.exchange.taker_fee
         net_eur = amount_eur - fee
         amount_crypto = net_eur / current_price
         stop_loss = self.risk.calculate_stop_loss(current_price, atr)
@@ -77,7 +77,7 @@ class DemoTrader:
         """Simula una venta/cierre de posición."""
         amount_crypto = position.amount_crypto
         gross_eur = amount_crypto * current_price
-        fee = gross_eur * config.risk.coinbase_taker_fee
+        fee = gross_eur * config.exchange.taker_fee
         net_eur = gross_eur - fee
         pnl_eur = net_eur - position.amount_eur_invested
 
