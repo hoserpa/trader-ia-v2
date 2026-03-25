@@ -92,6 +92,8 @@ def run_backtest(df: pd.DataFrame, model, scaler, threshold: float, initial_cash
     equity_curve = [initial_cash]
     
     fee_rate = 0.001
+    stop_loss = 0.02
+    take_profit = 0.04
     
     for i in range(len(signals)):
         sig = signals.iloc[i]
@@ -111,6 +113,23 @@ def run_backtest(df: pd.DataFrame, model, scaler, threshold: float, initial_cash
             position = 0
             entry_price = 0
         
+        if position > 0 and entry_price > 0:
+            pnl_pct = (price - entry_price) / entry_price
+            if pnl_pct <= -stop_loss:
+                proceeds = position * price * (1 - fee_rate)
+                pnl = proceeds - (position * entry_price)
+                cash = proceeds
+                trades.append(pnl)
+                position = 0
+                entry_price = 0
+            elif pnl_pct >= take_profit:
+                proceeds = position * price * (1 - fee_rate)
+                pnl = proceeds - (position * entry_price)
+                cash = proceeds
+                trades.append(pnl)
+                position = 0
+                entry_price = 0
+        
         equity = cash + position * price
         equity_curve.append(equity)
     
@@ -127,6 +146,8 @@ def run_backtest(df: pd.DataFrame, model, scaler, threshold: float, initial_cash
     wins = [t for t in trades if t > 0]
     losses = [t for t in trades if t <= 0]
     win_rate = len(wins) / len(trades) if trades else 0
+    
+    logger.info(f"Total trades: {len(trades)}, Wins: {len(wins)}, Losses: {len(losses)}")
     
     stats = {
         "total_return": total_return,
