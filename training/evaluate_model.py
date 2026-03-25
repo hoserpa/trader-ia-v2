@@ -9,7 +9,6 @@ import json
 import numpy as np
 import pandas as pd
 import joblib
-import vectorbt as vbt
 from sklearn.metrics import (
     accuracy_score, precision_score, recall_score, f1_score,
     classification_report, confusion_matrix, roc_curve, auc
@@ -54,7 +53,7 @@ def calculate_max_drawdown(equity: pd.Series) -> float:
 
 
 def run_backtest(df: pd.DataFrame, model, scaler, threshold: float, initial_cash: float = 10000):
-    """Ejecuta backtest con vectorbt."""
+    """Ejecuta backtest manual sin vectorbt."""
     logger.info("Ejecutando backtest...")
     
     X = df[FEATURE_COLS].values
@@ -64,6 +63,7 @@ def run_backtest(df: pd.DataFrame, model, scaler, threshold: float, initial_cash
     signals = []
     
     position_open = False
+    entry_price = 0
     for probs in proba:
         max_idx = np.argmax(probs)
         max_prob = probs[max_idx]
@@ -85,42 +85,55 @@ def run_backtest(df: pd.DataFrame, model, scaler, threshold: float, initial_cash
     
     logger.info(f"Distribución de señales: BUY={np.sum(signals==1)}, SELL={np.sum(signals==-1)}, HOLD={np.sum(signals==0)}")
     
-    entries = (signals == 1).values
-    exits = (signals == -1).values
+    cash = initial_cash
+    position = 0
+    entry_price = 0
+    trades = []
+    equity_curve = [initial_cash]
     
-    valid_exits = np.zeros(len(signals), dtype=bool)
-    position_open = False
+    fee_rate = 0.001
+    
     for i in range(len(signals)):
-        if entries[i]:
-            position_open = True
-        if exits[i] and position_open:
-            valid_exits[i] = True
-            position_open = False
+        sig = signals.iloc[i]
+        price = close[i]
+        
+        if sig == 1 and position == 0:
+            position = cash / price
+            entry_price = price
+            cash = 0
+            
+        elif sig == -1 and position > 0:
+            proceeds = position * price
+            proceeds *= (1 - fee_rate)
+            pnl = proceeds - (position * entry_price)
+            cash = proceeds
+            trades.append(pnl)
+            position = 0
+            entry_price = 0
+        
+        equity = cash + position * price
+        equity_curve.append(equity)
     
-    exits = valid_exits
+    final_equity = equity_curve[-1]
+    total_return = (final_equity - initial_cash) / initial_cash
     
-    logger.info(f"Entries: {np.sum(entries)}, Exits (validos): {np.sum(exits)}")
+    equity_series = pd.Series(equity_curve)
+    returns = equity_series.pct_change().dropna()
     
-    pf = vbt.Portfolio.from_signals(
-        close=close,
-        entries=entries,
-        exits=exits,
-        init_cash=initial_cash,
-        fees=0.001,
-        slippage=0.001,
-    )
-    
-    returns = pf.returns()
-    equity = pf.value()
+    wins = [t for t in trades if t > 0]
+    losses = [t for t in trades if t <= 0]
+    win_rate = len(wins) / len(trades) if trades else 0
     
     stats = {
-        "total_return": float(pf.total_return()),
-        "sharpe_ratio": float(calculate_sharpe(returns)),
-        "max_drawdown": float(calculate_max_drawdown(equity)),
-        "win_rate": float(pf.trades.win_rate()) if pf.trades.count() > 0 else 0.0,
-        "total_trades": int(pf.trades.count()),
-        "avg_trade": float(pf.trades.records["return"].mean()) if pf.trades.count() > 0 else 0.0,
+        "total_return": total_return,
+        "sharpe_ratio": calculate_sharpe(returns) if len(returns) > 0 else 0,
+        "max_drawdown": calculate_max_drawdown(equity_series),
+        "win_rate": win_rate,
+        "total_trades": len(trades),
+        "avg_trade": np.mean(trades) if trades else 0,
     }
+    
+    logger.info(f"Final equity: {final_equity:.2f}, Trades: {len(trades)}")
     
     return stats, signals
 
