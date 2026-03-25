@@ -63,14 +63,18 @@ def run_backtest(df: pd.DataFrame, model, scaler, threshold: float, initial_cash
     proba = model.predict(X)
     signals = []
     
+    position_open = False
     for probs in proba:
         max_idx = np.argmax(probs)
         max_prob = probs[max_idx]
+        
         if max_prob >= threshold:
-            if max_idx == 2:
+            if max_idx == 2 and not position_open:
                 signals.append(1)
-            elif max_idx == 0:
+                position_open = True
+            elif max_idx == 0 and position_open:
                 signals.append(-1)
+                position_open = False
             else:
                 signals.append(0)
         else:
@@ -87,9 +91,8 @@ def run_backtest(df: pd.DataFrame, model, scaler, threshold: float, initial_cash
         entries=entries,
         exits=exits,
         init_cash=initial_cash,
-        fees=0.006,
+        fees=0.001,
         slippage=0.001,
-        sl_stop=0.02,
     )
     
     returns = pf.returns()
