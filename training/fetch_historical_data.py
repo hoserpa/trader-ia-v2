@@ -7,7 +7,7 @@ import argparse
 import asyncio
 from datetime import datetime, timedelta
 from pathlib import Path
-import ccxt
+import ccxt.async_support as ccxt
 import pandas as pd
 from loguru import logger
 
