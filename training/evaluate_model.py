@@ -120,6 +120,10 @@ def run_backtest(df: pd.DataFrame, model, scaler, threshold: float, initial_cash
     equity_series = pd.Series(equity_curve)
     returns = equity_series.pct_change().dropna()
     
+    logger.info(f"Equity min: {equity_series.min():.2f}, max: {equity_series.max():.2f}")
+    logger.info(f"Equity first 5: {equity_series.head().tolist()}")
+    logger.info(f"Equity last 5: {equity_series.tail().tolist()}")
+    
     wins = [t for t in trades if t > 0]
     losses = [t for t in trades if t <= 0]
     win_rate = len(wins) / len(trades) if trades else 0
