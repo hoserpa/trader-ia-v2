@@ -156,11 +156,16 @@ def run_backtest(df: pd.DataFrame, model, scaler, threshold: float, initial_cash
     losses = [t for t in trades if t <= 0]
     win_rate = len(wins) / len(trades) if trades else 0
     
+    trade_returns = []
+    for t in trades:
+        trade_returns.append(t / initial_cash)
+    trade_returns = pd.Series(trade_returns)
+    
     logger.info(f"Total trades: {len(trades)}, Wins: {len(wins)}, Losses: {len(losses)}")
     
     stats = {
         "total_return": total_return,
-        "sharpe_ratio": calculate_sharpe(returns) if len(returns) > 0 else 0,
+        "sharpe_ratio": calculate_sharpe(trade_returns) if len(trade_returns) > 1 else 0,
         "max_drawdown": calculate_max_drawdown(equity_series),
         "win_rate": win_rate,
         "total_trades": len(trades),
