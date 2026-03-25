@@ -19,6 +19,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from loguru import logger
 
+Path("logs").mkdir(exist_ok=True)
+
 
 FEATURE_COLS = [
     "price_change_1", "price_change_3", "price_change_6",

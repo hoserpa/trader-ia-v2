@@ -10,6 +10,8 @@ import pandas as pd
 import numpy as np
 from loguru import logger
 
+Path("logs").mkdir(exist_ok=True)
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "bot"))
 from indicators.technical import calculate_indicators
 from indicators.features import FeatureBuilder

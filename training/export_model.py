@@ -9,6 +9,8 @@ from pathlib import Path
 import json
 from loguru import logger
 
+Path("logs").mkdir(exist_ok=True)
+
 
 def validate_model_files(model_dir: Path) -> bool:
     """Valida que existen los archivos necesarios."""

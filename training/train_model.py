@@ -20,6 +20,8 @@ from sklearn.metrics import roc_auc_score
 import joblib
 from loguru import logger
 
+Path("logs").mkdir(exist_ok=True)
+
 
 FEATURE_COLS = [
     "price_change_1", "price_change_3", "price_change_6",
