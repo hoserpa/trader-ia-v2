@@ -111,6 +111,7 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
     
     logger.info(f"Cargando datos de {data_dir}")
+    logger.info(f"Archivos parquet encontrados: {list(data_dir.glob('*.parquet'))}")
     data = load_data(data_dir)
     
     if not data:
