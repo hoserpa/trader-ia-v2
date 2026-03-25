@@ -89,6 +89,7 @@ def run_backtest(df: pd.DataFrame, model, scaler, threshold: float, initial_cash
         init_cash=initial_cash,
         fees=0.006,
         slippage=0.001,
+        sl_stop=0.02,
     )
     
     returns = pf.returns()
