@@ -46,14 +46,17 @@ class FeatureBuilder:
         features["macd_signal"] = self._safe_float(last.get("macd_signal"), 0.0) / (price + 1e-10)
         features["macd_hist"] = self._safe_float(last.get("macd_hist"), 0.0) / (price + 1e-10)
         if len(df) >= 2 and "macd" in df.columns and "macd_signal" in df.columns:
-            prev_macd = df["macd"].iloc[-2]
-            prev_sig = df["macd_signal"].iloc[-2]
-            curr_macd = last.get("macd", 0)
-            curr_sig = last.get("macd_signal", 0)
-            if prev_macd < prev_sig and curr_macd >= curr_sig:
-                features["macd_cross"] = 1.0
-            elif prev_macd > prev_sig and curr_macd <= curr_sig:
-                features["macd_cross"] = -1.0
+            prev_macd = self._safe_float(df["macd"].iloc[-2] if pd.notna(df["macd"].iloc[-2]) else None)
+            prev_sig = self._safe_float(df["macd_signal"].iloc[-2] if pd.notna(df["macd_signal"].iloc[-2]) else None)
+            curr_macd = self._safe_float(last.get("macd"))
+            curr_sig = self._safe_float(last.get("macd_signal"))
+            if prev_macd is not None and prev_sig is not None and curr_macd is not None and curr_sig is not None:
+                if prev_macd < prev_sig and curr_macd >= curr_sig:
+                    features["macd_cross"] = 1.0
+                elif prev_macd > prev_sig and curr_macd <= curr_sig:
+                    features["macd_cross"] = -1.0
+                else:
+                    features["macd_cross"] = 0.0
             else:
                 features["macd_cross"] = 0.0
         else:
