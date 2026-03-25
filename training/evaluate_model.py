@@ -36,11 +36,13 @@ FEATURE_COLS = [
 
 
 def calculate_sharpe(returns: pd.Series, risk_free_rate: float = 0.0) -> float:
-    """Calcula Sharpe ratio."""
+    """Calcula Sharpe ratio usando retornos logarítmicos."""
     if returns.empty or returns.std() == 0:
         return 0.0
-    excess = returns - risk_free_rate / 252
-    return np.sqrt(252) * excess.mean() / returns.std()
+    log_returns = np.log(1 + returns)
+    if log_returns.std() == 0:
+        return 0.0
+    return np.sqrt(252) * log_returns.mean() / log_returns.std()
 
 
 def calculate_max_drawdown(equity: pd.Series) -> float:
