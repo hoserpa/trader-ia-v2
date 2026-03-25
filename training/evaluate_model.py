@@ -95,7 +95,7 @@ def run_backtest(df: pd.DataFrame, model, scaler, threshold: float, initial_cash
         "total_return": float(pf.total_return()),
         "sharpe_ratio": float(calculate_sharpe(returns)),
         "max_drawdown": float(calculate_max_drawdown(equity)),
-        "win_rate": float(pf.win_rate()) if not pd.isna(pf.win_rate()) else 0.0,
+        "win_rate": float(pf.trades.win_rate()) if pf.trades.count() > 0 else 0.0,
         "total_trades": int(pf.trades.count()),
         "avg_trade": float(pf.trades.records["return"].mean()) if pf.trades.count() > 0 else 0.0,
     }
