@@ -114,6 +114,9 @@ async def main():
     
     logger.info("Descarga completada")
 
+    await exchange.close()
+    logger.info("Recursos de exchange cerrados")
+
 
 if __name__ == "__main__":
     logger.add("logs/fetch.log", rotation="50 MB", level="INFO")
