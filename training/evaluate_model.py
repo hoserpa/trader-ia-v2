@@ -79,14 +79,16 @@ def run_backtest(df: pd.DataFrame, model, scaler, threshold: float, initial_cash
     signals = pd.Series(signals, index=df.index)
     close = df["close"].values
     
+    entries = (signals == 1).values
+    exits = (signals == -1).values
+    
     pf = vbt.Portfolio.from_signals(
         close=close,
-        entries=signals == 1,
-        exits=signals == -1,
+        entries=entries,
+        exits=exits,
         init_cash=initial_cash,
         fees=0.006,
         slippage=0.001,
-        sl_stop=0.02,
     )
     
     returns = pf.returns()
