@@ -4,6 +4,14 @@ import pandas_ta as ta
 from loguru import logger
 
 
+def _get_column(df: pd.DataFrame, suffix: str) -> pd.Series:
+    """Busca columna por sufijo (compatible con diferentes versiones de pandas-ta)."""
+    for col in df.columns:
+        if col.endswith(suffix):
+            return df[col]
+    return None
+
+
 def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """Recibe DataFrame con columnas: timestamp, open, high, low, close, volume.
     Retorna el mismo DataFrame enriquecido con todos los indicadores.
@@ -19,17 +27,18 @@ def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
     macd = ta.macd(df["close"], fast=12, slow=26, signal=9)
     if macd is not None:
-        df["macd"] = macd["MACD_12_26_9"]
-        df["macd_signal"] = macd["MACDs_12_26_9"]
-        df["macd_hist"] = macd["MACDh_12_26_9"]
+        df["macd"] = _get_column(macd, "MACD")
+        df["macd_signal"] = _get_column(macd, "MACDs")
+        df["macd_hist"] = _get_column(macd, "MACDh")
 
     bb = ta.bbands(df["close"], length=20, std=2)
     if bb is not None:
-        df["bb_upper"] = bb["BBU_20_2.0"]
-        df["bb_mid"] = bb["BBM_20_2.0"]
-        df["bb_lower"] = bb["BBL_20_2.0"]
-        df["bb_pct_b"] = bb["BBP_20_2.0"]
-        df["bb_bandwidth"] = (df["bb_upper"] - df["bb_lower"]) / df["bb_mid"]
+        df["bb_upper"] = _get_column(bb, "BBU")
+        df["bb_mid"] = _get_column(bb, "BBM")
+        df["bb_lower"] = _get_column(bb, "BBL")
+        df["bb_pct_b"] = _get_column(bb, "BBP")
+        if df["bb_upper"] is not None and df["bb_mid"] is not None:
+            df["bb_bandwidth"] = (df["bb_upper"] - df["bb_lower"]) / df["bb_mid"]
 
     df["atr_14"] = ta.atr(df["high"], df["low"], df["close"], length=14)
 
@@ -40,8 +49,8 @@ def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
     stoch = ta.stoch(df["high"], df["low"], df["close"], k=14, d=3)
     if stoch is not None:
-        df["stoch_k"] = stoch["STOCHk_14_3_3"]
-        df["stoch_d"] = stoch["STOCHd_14_3_3"]
+        df["stoch_k"] = _get_column(stoch, "STOCHk")
+        df["stoch_d"] = _get_column(stoch, "STOCHd")
 
     df["williams_r"] = ta.willr(df["high"], df["low"], df["close"], length=14)
 
