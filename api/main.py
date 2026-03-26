@@ -21,7 +21,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 
 frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend")
 
-app.mount("/static", StaticFiles(directory=os.path.join(frontend_path, "css")), name="static")
+app.mount("/static", StaticFiles(directory=frontend_path), name="static")
 
 @app.get("/")
 async def root():
