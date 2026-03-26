@@ -2,8 +2,15 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0f1419">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="CryptoBot">
+  <meta name="mobile-web-app-capable" content="yes">
   <title>Crypto Trader Bot</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>">
   <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
@@ -77,36 +84,40 @@
 
   <section v-if="openPositions.length">
     <h2>Posiciones abiertas</h2>
-    <table class="data-table">
-      <thead><tr><th>Par</th><th>Entrada</th><th>Actual</th><th>PnL</th><th>Stop-loss</th><th>Take-profit</th></tr></thead>
-      <tbody>
-        <tr v-for="(pos, pair) in portfolio.positions" :key="pair">
-          <td>{{ pair }}</td>
-          <td>{{ formatPrice(pos.entry_price) }}€</td>
-          <td>{{ formatPrice(pos.current_price) }}€</td>
-          <td :class="pos.pnl_eur >= 0 ? 'positive' : 'negative'">{{ pos.pnl_eur >= 0 ? '+' : '' }}{{ formatPrice(pos.pnl_eur) }}€ ({{ pos.pnl_pct?.toFixed(2) }}%)</td>
-          <td class="negative">{{ formatPrice(pos.stop_loss_price) }}€</td>
-          <td class="positive">{{ formatPrice(pos.take_profit_price) }}€</td>
-        </tr>
-      </tbody>
-    </table>
+    <div class="table-wrapper">
+      <table class="data-table">
+        <thead><tr><th>Par</th><th>Entrada</th><th>Actual</th><th>PnL</th><th>SL</th><th>TP</th></tr></thead>
+        <tbody>
+          <tr v-for="(pos, pair) in portfolio.positions" :key="pair">
+            <td>{{ pair }}</td>
+            <td>{{ formatPrice(pos.entry_price) }}€</td>
+            <td>{{ formatPrice(pos.current_price) }}€</td>
+            <td :class="pos.pnl_eur >= 0 ? 'positive' : 'negative'">{{ pos.pnl_eur >= 0 ? '+' : '' }}{{ formatPrice(pos.pnl_eur) }}€ ({{ pos.pnl_pct?.toFixed(1) }}%)</td>
+            <td class="negative">{{ formatPrice(pos.stop_loss_price) }}€</td>
+            <td class="positive">{{ formatPrice(pos.take_profit_price) }}€</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   </section>
 
   <section>
-    <h2>Historial de trades</h2>
-    <table class="data-table">
-      <thead><tr><th>Fecha</th><th>Par</th><th>Tipo</th><th>Precio</th><th>EUR</th><th>Comisión</th></tr></thead>
-      <tbody>
-        <tr v-for="t in trades" :key="t.id">
-          <td>{{ formatDate(t.timestamp) }}</td>
-          <td>{{ t.pair }}</td>
-          <td><span class="badge" :class="t.side === 'buy' ? 'badge-buy' : 'badge-sell'">{{ t.side.toUpperCase() }}</span></td>
-          <td>{{ formatPrice(t.price) }}€</td>
-          <td>{{ formatPrice(t.amount_eur) }}€</td>
-          <td>{{ formatPrice(t.fee_eur) }}€</td>
-        </tr>
-      </tbody>
-    </table>
+    <h2>Historial</h2>
+    <div class="table-wrapper">
+      <table class="data-table">
+        <thead><tr><th>Fecha</th><th>Par</th><th>Tipo</th><th>Precio</th><th>EUR</th><th>Com.</th></tr></thead>
+        <tbody>
+          <tr v-for="t in trades" :key="t.id">
+            <td>{{ formatDate(t.timestamp) }}</td>
+            <td>{{ t.pair }}</td>
+            <td><span class="badge" :class="t.side === 'buy' ? 'badge-buy' : 'badge-sell'">{{ t.side.toUpperCase() }}</span></td>
+            <td>{{ formatPrice(t.price) }}€</td>
+            <td>{{ formatPrice(t.amount_eur) }}€</td>
+            <td>{{ formatPrice(t.fee_eur) }}€</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   </section>
 
   <section>

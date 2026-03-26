@@ -27,6 +27,10 @@ app.mount("/static", StaticFiles(directory=frontend_path), name="static")
 async def root():
     return FileResponse(os.path.join(frontend_path, "index.html"))
 
+@app.get("/manifest.json")
+async def manifest():
+    return FileResponse(os.path.join(frontend_path, "manifest.json"), media_type="application/json")
+
 security = HTTPBasic()
 
 
