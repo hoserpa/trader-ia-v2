@@ -30,7 +30,7 @@ class ModelPredictor:
             self.model = joblib.load(config.model.model_path)
             self.scaler = joblib.load(config.model.scaler_path)
 
-            metadata_path = config.model.model_path.replace(".pkl", "_metadata.json")
+            metadata_path = config.model.model_path.replace("trained_model.pkl", "model_metadata.json")
             if os.path.exists(metadata_path):
                 with open(metadata_path) as f:
                     self.metadata = json.load(f)
@@ -76,6 +76,7 @@ class ModelPredictor:
                 confidence = float(np.max(probs))
             else:
                 predictions = self.model.predict(X_scaled)
+                logger.debug(f"Predictions type: {type(predictions)}, shape: {predictions.shape}, value: {predictions}")
                 best_class = int(predictions[0])
                 confidence = 0.8
                 prob_dict = {self.SIGNAL_MAP[best_class]: confidence}
