@@ -1,5 +1,6 @@
 """Estado y cálculos del portafolio."""
 import json
+import os
 from datetime import datetime
 import redis.asyncio as aioredis
 from loguru import logger
@@ -19,9 +20,15 @@ class Portfolio:
         self._state = await self._load_or_init(initial_balance or config.trading.demo_initial_balance)
 
     async def _load_or_init(self, initial_balance: float) -> dict:
+        reset_portfolio = os.getenv("RESET_PORTFOLIO", "false").lower() == "true"
+        
         raw = await self.redis.get(REDIS_PORTFOLIO_KEY)
-        if raw:
+        if raw and not reset_portfolio:
             return json.loads(raw)
+        
+        if raw and reset_portfolio:
+            logger.warning("RESET_PORTFOLIO=true, borrando estado anterior del portafolio...")
+        
         state = {
             "balance_eur": initial_balance,
             "initial_balance_eur": initial_balance,
@@ -32,6 +39,7 @@ class Portfolio:
             "created_at": datetime.utcnow().isoformat(),
         }
         await self._save(state)
+        logger.info(f"Portafolio inicializado con {initial_balance}€")
         return state
 
     async def _save(self, state: dict) -> None:

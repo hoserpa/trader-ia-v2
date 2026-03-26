@@ -107,40 +107,30 @@ def optimize_threshold(model, X_val, y_val, confidence_thresholds: list):
 
 
 def train_lightgbm(X_train, y_train, X_val, y_val):
-    """Entrena modelo LightGBM multiclase."""
+    """Entrena modelo LightGBM multiclase con sklearn wrapper para predict_proba."""
+    from lightgbm import LGBMClassifier
+    
     class_counts = np.bincount(y_train)
     class_weights = len(y_train) / (len(class_counts) * class_counts)
-    sample_weights = np.array([class_weights[y] for y in y_train])
     
-    train_data = lgb.Dataset(X_train, label=y_train, weight=sample_weights)
-    val_data = lgb.Dataset(X_val, label=y_val, reference=train_data)
+    model = LGBMClassifier(
+        objective="multiclass",
+        num_class=3,
+        n_estimators=500,
+        max_depth=6,
+        num_leaves=31,
+        learning_rate=0.05,
+        n_jobs=2,
+        verbose=-1,
+        random_state=42,
+        class_weight="balanced",
+    )
     
-    params = {
-        "objective": "multiclass",
-        "num_class": 3,
-        "metric": "multi_logloss",
-        "boosting_type": "gbdt",
-        "n_estimators": 500,
-        "max_depth": 6,
-        "num_leaves": 31,
-        "learning_rate": 0.05,
-        "n_jobs": 2,
-        "verbose": -1,
-        "seed": 42,
-        "force_col_wise": True
-    }
-    
-    logger.info("Entrenando LightGBM...")
-    model = lgb.train(
-        params,
-        train_data,
-        valid_sets=[train_data, val_data],
-        valid_names=["train", "val"],
-        num_boost_round=500,
-        callbacks=[
-            lgb.early_stopping(stopping_rounds=50),
-            lgb.log_evaluation(period=50)
-        ]
+    logger.info("Entrenando LightGBM (sklearn wrapper)...")
+    model.fit(
+        X_train, y_train,
+        eval_set=[(X_val, y_val)],
+        callbacks=[lgb.early_stopping(stopping_rounds=50), lgb.log_evaluation(period=50)]
     )
     
     return model
@@ -229,7 +219,7 @@ def main():
         "feature_cols": FEATURE_COLS,
         "confidence_threshold": best_threshold,
         "test_metrics": test_metrics,
-        "lgb_params": model.params
+        "lgb_params": model.get_params()
     }
     
     with open(metadata_path, "w") as f:
