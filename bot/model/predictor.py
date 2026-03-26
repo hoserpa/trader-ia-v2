@@ -34,7 +34,7 @@ class ModelPredictor:
             if os.path.exists(metadata_path):
                 with open(metadata_path) as f:
                     self.metadata = json.load(f)
-                self.feature_names = self.metadata.get("feature_names", [])
+                self.feature_names = self.metadata.get("feature_cols", self.metadata.get("feature_names", []))
 
             logger.info(f"Modelo cargado. Entrenado: {self.metadata.get('trained_at', 'desconocido')}")
             logger.info(f"Métricas validación: {self.metadata.get('validation_metrics', {})}")
@@ -68,18 +68,24 @@ class ModelPredictor:
 
             X_scaled = self.scaler.transform(X)
 
-            probs = self.model.predict_proba(X_scaled)[0]
+            if hasattr(self.model, 'predict_proba'):
+                probs = self.model.predict_proba(X_scaled)[0]
+                class_order = self.model.classes_
+                prob_dict = {self.SIGNAL_MAP[int(c)]: float(p) for c, p in zip(class_order, probs)}
+                best_class = int(class_order[np.argmax(probs)])
+                confidence = float(np.max(probs))
+            else:
+                predictions = self.model.predict(X_scaled)
+                best_class = int(predictions[0])
+                confidence = 0.8
+                prob_dict = {self.SIGNAL_MAP[best_class]: confidence}
+                for other_class in [0, 1, 2]:
+                    if other_class != best_class:
+                        prob_dict[self.SIGNAL_MAP[other_class]] = (1 - confidence) / 2
             
-            logger.debug(f"Raw probabilities: {probs}")
-
-            class_order = self.model.classes_
-            prob_dict = {self.SIGNAL_MAP[int(c)]: float(p) for c, p in zip(class_order, probs)}
-            
-            logger.debug(f"Prob dict: {prob_dict}")
-
-            best_class = int(class_order[np.argmax(probs)])
             signal = self.SIGNAL_MAP[best_class]
-            confidence = float(np.max(probs))
+            
+            logger.debug(f"Raw predictions: best_class={best_class}, confidence={confidence}")
 
             if signal == "BUY" and confidence < config.risk.buy_threshold:
                 signal = "HOLD"
