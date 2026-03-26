@@ -33,11 +33,12 @@ cp .env.example .env
 nano .env  # Editar con tus valores
 
 # 3. Ejecutar servicios
-docker-compose up -d --build
+# NOTA: Si docker compose no está disponible, usar "docker-compose" (con guion)
+docker compose up -d --build
 
 # 4. Verificar estado
-docker-compose ps
-docker-compose logs -f
+docker compose ps
+docker compose logs -f
 ```
 
 ### Local (Desarrollo)
@@ -110,38 +111,38 @@ ipconfig | findstr /i "IPv4"
 
 ```bash
 # Iniciar todos los servicios
-docker-compose up -d --build
+docker compose up -d --build
 
 # Ver logs en tiempo real
-docker-compose logs -f
+docker compose logs -f
 
 # Ver logs de un servicio específico
-docker-compose logs -f bot
-docker-compose logs -f api
-docker-compose logs -f redis
+docker compose logs -f bot
+docker compose logs -f api
+docker compose logs -f redis
 ```
 
 ### Detener servicios
 
 ```bash
 # Detener todos los servicios (preserva datos)
-docker-compose down
+docker compose down
 
 # Detener y eliminar volúmenes (LIMPIA TODO)
-docker-compose down -v
+docker compose down -v
 
 # Detener un servicio específico
-docker-compose stop bot
+docker compose stop bot
 
 # Reiniciar un servicio específico
-docker-compose restart bot
+docker compose restart bot
 ```
 
 ### Estado y debug
 
 ```bash
 # Ver estado de contenedores
-docker-compose ps
+docker compose ps
 
 # Ver recursos usados
 docker stats
@@ -158,7 +159,7 @@ El proyecto está optimizado para Raspberry Pi 3 (ARM):
 
 ```bash
 # En la Raspberry Pi
-docker-compose up -d --build
+docker compose up -d --build
 
 # Acceso desde otro dispositivo
 # http://<IP_RASPBERRY_PI>:8000
@@ -291,28 +292,28 @@ Los archivos deben ubicarse en:
 
 ```bash
 # Redis no conecta
-docker-compose logs redis
-docker-compose restart redis
+docker compose logs redis
+docker compose restart redis
 
 # El bot no arranca
-docker-compose logs bot
+docker compose logs bot
 
 # Verificar puertos ocupados
 netstat -tuln | grep 8000
 
 # Limpiar y recreate
-docker-compose down -v
-docker-compose up -d --build
+docker compose down -v
+docker compose up -d --build
 ```
 
 ### Logs
 
 ```bash
 # Todos los logs
-docker-compose logs -f
+docker compose logs -f
 
 # Solo errores
-docker-compose logs -f | grep ERROR
+docker compose logs -f | grep ERROR
 ```
 
 ## Licencia
