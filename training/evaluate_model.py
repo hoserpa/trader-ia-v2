@@ -54,9 +54,8 @@ def calculate_max_drawdown(equity: pd.Series) -> float:
     return -drawdown.min() if drawdown.min() < 0 else 0.0
 
 
-def run_backtest(df: pd.DataFrame, model, scaler, threshold: float, initial_cash: float = 10000):
+def run_backtest(df: pd.DataFrame, model, scaler, buy_threshold: float, sell_threshold: float, initial_cash: float = 10000):
     """Ejecuta backtest manual sin vectorbt."""
-    logger.info("Ejecutando backtest...")
     
     X = df[FEATURE_COLS].values
     X = scaler.transform(X)
@@ -66,19 +65,17 @@ def run_backtest(df: pd.DataFrame, model, scaler, threshold: float, initial_cash
     
     position_open = False
     entry_price = 0
+    
     for probs in proba:
         max_idx = np.argmax(probs)
         max_prob = probs[max_idx]
         
-        if max_prob >= threshold:
-            if max_idx == 2 and not position_open:
-                signals.append(1)
-                position_open = True
-            elif max_idx == 0 and position_open:
-                signals.append(-1)
-                position_open = False
-            else:
-                signals.append(0)
+        if max_idx == 2 and max_prob >= buy_threshold and not position_open:
+            signals.append(1)
+            position_open = True
+        elif max_idx == 0 and max_prob >= sell_threshold and position_open:
+            signals.append(-1)
+            position_open = False
         else:
             signals.append(0)
     
@@ -96,7 +93,7 @@ def run_backtest(df: pd.DataFrame, model, scaler, threshold: float, initial_cash
     fee_rate = 0.001
     stop_loss = 0.015
     take_profit = 0.03
-    position_size = 0.05
+    position_size = 0.03
     
     for i in range(len(signals)):
         sig = signals.iloc[i]
@@ -237,7 +234,9 @@ def main():
     parser.add_argument("--data", type=str, default="output/features/features_with_labels.parquet")
     parser.add_argument("--output", type=str, default="output/evaluation")
     parser.add_argument("--initial-cash", type=float, default=10000)
-    parser.add_argument("--threshold", type=float, default=None, help="Confidence threshold (default: from metadata or 0.60)")
+    parser.add_argument("--threshold", type=float, default=None, help="Confidence threshold for all classes (default: from metadata or 0.60)")
+    parser.add_argument("--buy-threshold", type=float, default=0.40, help="Threshold for BUY signals")
+    parser.add_argument("--sell-threshold", type=float, default=0.40, help="Threshold for SELL signals")
     args = parser.parse_args()
     
     output_dir = Path(args.output)
@@ -249,7 +248,9 @@ def main():
     
     with open(args.metadata) as f:
         metadata = json.load(f)
-    threshold = args.threshold if args.threshold else metadata.get("confidence_threshold", 0.60)
+    buy_threshold = args.buy_threshold if args.threshold is None else args.threshold
+    sell_threshold = args.sell_threshold if args.threshold is None else args.threshold
+    logger.info(f"Thresholds: BUY>={buy_threshold}, SELL>={sell_threshold}")
     
     logger.info(f"Cargando datos: {args.data}")
     df = pd.read_parquet(args.data)
@@ -283,7 +284,7 @@ def main():
     plot_roc_curves(y, proba, output_dir / "roc_curves.png")
     
     logger.info("Ejecutando backtest...")
-    bt_stats, signals = run_backtest(df, model, scaler, threshold, args.initial_cash)
+    bt_stats, signals = run_backtest(df, model, scaler, buy_threshold, sell_threshold, args.initial_cash)
     
     logger.info("Estadísticas del backtest:")
     for k, v in bt_stats.items():
