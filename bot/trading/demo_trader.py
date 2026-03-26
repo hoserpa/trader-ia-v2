@@ -15,7 +15,7 @@ class DemoTrader:
         self.portfolio = portfolio
         self.risk = risk_manager
 
-    def execute_buy(self, pair: str, amount_eur: float, current_price: float, atr: float) -> dict:
+    async def execute_buy(self, pair: str, amount_eur: float, current_price: float, atr: float) -> dict:
         """Simula una compra. Retorna el dict del trade creado."""
         fee = amount_eur * config.exchange.taker_fee
         net_eur = amount_eur - fee
@@ -23,8 +23,8 @@ class DemoTrader:
         stop_loss = self.risk.calculate_stop_loss(current_price, atr)
         take_profit = self.risk.calculate_take_profit(current_price, atr)
 
-        self.portfolio.update_balance(-amount_eur)
-        self.portfolio.add_position(pair, {
+        await self.portfolio.update_balance(-amount_eur)
+        await self.portfolio.add_position(pair, {
             "amount_crypto": amount_crypto,
             "entry_price": current_price,
             "amount_eur_invested": net_eur,
@@ -73,7 +73,7 @@ class DemoTrader:
         logger.info(f"🟢 [DEMO] COMPRA {pair}: {amount_crypto:.8f} @ {current_price:.2f}€ (inv={amount_eur:.2f}€, SL={stop_loss:.2f}, TP={take_profit:.2f})")
         return result
 
-    def execute_sell(self, pair: str, position, current_price: float, reason: str) -> dict:
+    async def execute_sell(self, pair: str, position, current_price: float, reason: str) -> dict:
         """Simula una venta/cierre de posición."""
         amount_crypto = position.amount_crypto
         gross_eur = amount_crypto * current_price
@@ -81,8 +81,8 @@ class DemoTrader:
         net_eur = gross_eur - fee
         pnl_eur = net_eur - position.amount_eur_invested
 
-        self.portfolio.update_balance(net_eur)
-        self.portfolio.remove_position(pair)
+        await self.portfolio.update_balance(net_eur)
+        await self.portfolio.remove_position(pair)
 
         db = SessionLocal()
         try:

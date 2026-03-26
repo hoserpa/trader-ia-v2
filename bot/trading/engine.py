@@ -34,6 +34,11 @@ class TradingEngine:
         self._running = False
         self._status = "stopped"
 
+    async def start(self) -> None:
+        await self.portfolio.initialize()
+        self._running = True
+        self._status = "running"
+
         if config.trading.is_demo():
             self.trader = DemoTrader(self.portfolio, self.risk_manager)
             logger.info("Modo DEMO activado — no se realizarán operaciones reales.")
@@ -41,8 +46,7 @@ class TradingEngine:
             self.trader = RealTrader(self.portfolio, self.risk_manager)
             logger.warning("⚠️  Modo REAL activado — se operará con dinero real.")
 
-    async def start(self) -> None:
-        self._running = True
+        await self._publish_status()
         self._status = "running"
         await self._publish_status()
         logger.info(f"Motor de trading iniciado. Intervalo: {config.trading.analysis_interval}s")
@@ -125,7 +129,7 @@ class TradingEngine:
         if open_position:
             should_sell, sell_reason = self.risk_manager.can_sell(pair, open_position, signal, current_price)
             if should_sell:
-                trade = self.trader.execute_sell(pair, open_position, current_price, sell_reason)
+                trade = await self.trader.execute_sell(pair, open_position, current_price, sell_reason)
                 if trade:
                     executed = True
                     await self.redis.publish("bot:live_updates", json.dumps({"type": "trade_executed", "data": trade}))
@@ -133,16 +137,13 @@ class TradingEngine:
         else:
             portfolio_state = self.portfolio.get()
             prices = {p: await self.collector.get_current_price(p) or 0 for p in config.trading.pairs}
-            portfolio_state = self.portfolio.update_valuations(prices)
+            portfolio_state = await self.portfolio.update_valuations(prices)
 
             can_buy, reason, amount_eur = self.risk_manager.can_buy(
                 pair, signal, portfolio_state, current_price, atr
             )
             if can_buy:
-                if config.trading.is_demo():
-                    trade = self.trader.execute_buy(pair, amount_eur, current_price, atr)
-                else:
-                    trade = await self.trader.execute_buy(pair, amount_eur, current_price, atr)
+                trade = await self.trader.execute_buy(pair, amount_eur, current_price, atr)
 
                 if trade:
                     executed = True
@@ -175,7 +176,7 @@ class TradingEngine:
             price = await self.collector.get_current_price(pair)
             if price:
                 prices[pair] = price
-        state = self.portfolio.update_valuations(prices)
+        state = await self.portfolio.update_valuations(prices)
 
         db = SessionLocal()
         try:
