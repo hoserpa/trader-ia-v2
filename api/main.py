@@ -31,6 +31,10 @@ async def root():
 async def manifest():
     return FileResponse(os.path.join(frontend_path, "manifest.json"), media_type="application/json")
 
+@app.get("/icon.png")
+async def icon():
+    return FileResponse(os.path.join(frontend_path, "icon.png"), media_type="image/png")
+
 security = HTTPBasic()
 
 
