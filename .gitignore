@@ -1,0 +1,69 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+.eggs/
+*.egg-info/
+dist/
+build/
+*.whl
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+tests/
+*.test.py
+
+# Datos
+data/
+*.db
+*.db-journal
+*.parquet
+
+# Modelos (entrenados)
+bot/model/*.pkl
+bot/model/*.json
+!bot/model/.gitkeep
+!bot/model/model_metadata.json.example
+
+# Output training
+output/
+logs/
+
+# Documentación
+*.md
+!README.md
+!AGENTS.md
+
+# Entorno
+.env
+.env.local
+.env.*
+*.log
+logs/
+
+# Docker
+Dockerfile
+docker-compose*.yml
+.docker/
+
+# OS
+.DS_Store
+Thumbs.db
