@@ -74,7 +74,9 @@ class ModelPredictor:
             signal = self.SIGNAL_MAP[best_class]
             confidence = float(np.max(probs))
 
-            if confidence < config.risk.min_confidence_threshold:
+            if signal == "BUY" and confidence < config.risk.buy_threshold:
+                signal = "HOLD"
+            elif signal == "SELL" and confidence < config.risk.sell_threshold:
                 signal = "HOLD"
 
             return {
