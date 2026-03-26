@@ -293,7 +293,8 @@ def main():
     all_metrics = {
         "classification_metrics": test_metrics,
         "backtest_stats": bt_stats,
-        "threshold": threshold,
+        "buy_threshold": buy_threshold,
+        "sell_threshold": sell_threshold,
         "initial_cash": args.initial_cash
     }
     
