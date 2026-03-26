@@ -35,7 +35,6 @@ def get_candle_count(db: Session, pair: str, timeframe: str) -> int:
     return db.query(func.count(Candle.id)).filter_by(
         pair=pair, timeframe=timeframe
     ).scalar() or 0
-    )
 
 
 def save_portfolio_snapshot(db: Session, snapshot: dict) -> PortfolioSnapshot:
