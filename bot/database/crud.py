@@ -28,6 +28,13 @@ def get_candles(db: Session, pair: str, timeframe: str, limit: int = 500) -> lis
         .order_by(desc(Candle.timestamp))
         .limit(limit)
         .all()
+
+
+def get_candle_count(db: Session, pair: str, timeframe: str) -> int:
+    """Retorna el número de velas para un par y timeframe."""
+    return db.query(func.count(Candle.id)).filter_by(
+        pair=pair, timeframe=timeframe
+    ).scalar() or 0
     )
 
 

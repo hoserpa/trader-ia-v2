@@ -74,10 +74,20 @@ async def fetch_and_store_historical(pair: str, days: int = 90) -> int:
 
 
 async def initialize_historical_data(days: int = 90) -> None:
-    """Inicializa el histórico para todos los pares configurados."""
-    tasks = [fetch_and_store_historical(pair, days) for pair in config.trading.pairs]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    """Inicializa el histórico solo si no existen datos suficientes."""
+    from database.crud import get_candle_count
     
-    for pair, result in zip(config.trading.pairs, results):
-        if isinstance(result, Exception):
-            logger.error(f"Error obteniendo datos históricos para {pair}: {result}")
+    required_candles = int((days * 24 * 60) / 5)
+    
+    for pair in config.trading.pairs:
+        db = SessionLocal()
+        try:
+            existing_count = get_candle_count(db, pair, config.trading.timeframe)
+        finally:
+            db.close()
+        
+        if existing_count >= required_candles:
+            logger.info(f"Datos históricos para {pair} ya existen ({existing_count} velas), omitiendo descarga.")
+        else:
+            logger.info(f"Datos insuficientes para {pair} ({existing_count} < {required_candles}), descargando...")
+            await fetch_and_store_historical(pair, days)
