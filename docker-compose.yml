@@ -25,6 +25,8 @@ services:
       - ./data:/app/data
     env_file:
       - .env
+    environment:
+      - REDIS_HOST=crypto_redis
     depends_on:
       redis:
         condition: service_healthy
@@ -46,6 +48,8 @@ services:
       - ./frontend:/app/frontend
     env_file:
       - .env
+    environment:
+      - REDIS_HOST=crypto_redis
     depends_on:
       redis:
         condition: service_healthy
