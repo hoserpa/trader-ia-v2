@@ -94,9 +94,9 @@ def run_backtest(df: pd.DataFrame, model, scaler, threshold: float, initial_cash
     equity_curve = [initial_cash]
     
     fee_rate = 0.001
-    stop_loss = 0.02
-    take_profit = 0.04
-    position_size = 0.1
+    stop_loss = 0.015
+    take_profit = 0.03
+    position_size = 0.05
     
     for i in range(len(signals)):
         sig = signals.iloc[i]
@@ -237,6 +237,7 @@ def main():
     parser.add_argument("--data", type=str, default="output/features/features_with_labels.parquet")
     parser.add_argument("--output", type=str, default="output/evaluation")
     parser.add_argument("--initial-cash", type=float, default=10000)
+    parser.add_argument("--threshold", type=float, default=None, help="Confidence threshold (default: from metadata or 0.60)")
     args = parser.parse_args()
     
     output_dir = Path(args.output)
@@ -248,7 +249,7 @@ def main():
     
     with open(args.metadata) as f:
         metadata = json.load(f)
-    threshold = metadata.get("confidence_threshold", 0.70)
+    threshold = args.threshold if args.threshold else metadata.get("confidence_threshold", 0.60)
     
     logger.info(f"Cargando datos: {args.data}")
     df = pd.read_parquet(args.data)
