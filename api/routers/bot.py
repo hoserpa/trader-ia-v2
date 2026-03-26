@@ -28,7 +28,8 @@ async def bot_config():
         "risk": {
             "max_risk_per_trade_pct": config.risk.max_risk_per_trade_pct,
             "max_open_positions": config.risk.max_open_positions,
-            "min_confidence_threshold": config.risk.min_confidence_threshold,
+            "buy_threshold": config.risk.buy_threshold,
+            "sell_threshold": config.risk.sell_threshold,
             "stop_loss_atr_multiplier": config.risk.stop_loss_atr_multiplier,
             "take_profit_atr_multiplier": config.risk.take_profit_atr_multiplier,
         }
