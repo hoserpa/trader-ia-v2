@@ -1,7 +1,7 @@
 """Inferencia del modelo LightGBM entrenado."""
 import os
 import json
-import pickle
+import joblib
 from datetime import datetime
 from typing import Optional
 import pandas as pd
@@ -27,10 +27,8 @@ class ModelPredictor:
             logger.warning(f"Modelo no encontrado en {config.model.model_path}. El bot funcionará en modo espera.")
             return
         try:
-            with open(config.model.model_path, "rb") as f:
-                self.model = pickle.load(f)
-            with open(config.model.scaler_path, "rb") as f:
-                self.scaler = pickle.load(f)
+            self.model = joblib.load(config.model.model_path)
+            self.model = joblib.load(config.model.scaler_path)
 
             metadata_path = config.model.model_path.replace(".pkl", "_metadata.json")
             if os.path.exists(metadata_path):
