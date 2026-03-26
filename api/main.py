@@ -13,7 +13,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "bot"))
 
 from config import config
-from routers import portfolio, trades, market, bot, logs
+from api.routers import portfolio, trades, market, bot, logs
 
 app = FastAPI(title="Crypto Trader Bot API", version="1.0.0")
 
@@ -66,7 +66,7 @@ app.include_router(market.router, prefix="/market", tags=["Market"], dependencie
 app.include_router(bot.router, prefix="/bot", tags=["Bot"], dependencies=[Depends(verify_credentials)])
 app.include_router(logs.router, prefix="/logs", tags=["Logs"], dependencies=[Depends(verify_credentials)])
 
-from websocket.live import router as ws_router
+from api.websocket.live import router as ws_router
 app.include_router(ws_router)
 
 
