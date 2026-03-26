@@ -64,9 +64,13 @@ class ModelPredictor:
             X_scaled = self.scaler.transform(X)
 
             probs = self.model.predict_proba(X_scaled)[0]
+            
+            logger.debug(f"Raw probabilities: {probs}")
 
             class_order = self.model.classes_
             prob_dict = {self.SIGNAL_MAP[int(c)]: float(p) for c, p in zip(class_order, probs)}
+            
+            logger.debug(f"Prob dict: {prob_dict}")
 
             best_class = int(class_order[np.argmax(probs)])
             signal = self.SIGNAL_MAP[best_class]

@@ -61,8 +61,18 @@ class DataCollector:
         """Verifica si el exchange soporta WebSocket para tickers."""
         try:
             await self.exchange.load_markets()
-            if hasattr(self.exchange, 'watch_tickers'):
-                return True
+            if not hasattr(self.exchange, 'watch_tickers'):
+                return False
+            
+            try:
+                ticker = await asyncio.wait_for(
+                    self.exchange.fetch_ticker(config.trading.pairs[0]),
+                    timeout=5.0
+                )
+                return False
+            except Exception:
+                pass
+            
             return False
         except Exception:
             return False

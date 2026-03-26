@@ -99,17 +99,21 @@ class TradingEngine:
 
         features = self.feature_builder.build_features(candles_with_indicators)
         if features is None:
+            logger.warning(f"{pair}: features = None, no se puede predecir")
             return
 
+        logger.debug(f"{pair}: features keys = {list(features.keys())[:10]}...")
+        
         if not self.predictor.is_model_loaded():
-            logger.debug(f"{pair}: modelo no cargado, usando señal HOLD")
+            logger.warning(f"{pair}: modelo no cargado, usando señal HOLD")
             signal = {"signal": "HOLD", "confidence": 0.0, "probabilities": {"BUY": 0.0, "SELL": 0.0, "HOLD": 1.0}}
         else:
             signal = self.predictor.predict(features)
             if signal is None:
+                logger.warning(f"{pair}: predict() devolvió None")
                 return
-
-        logger.info(f"📊 {pair} | precio={current_price:.2f}€ | señal={signal['signal']} ({signal['confidence']:.0%}) | ATR={atr:.2f}")
+        
+        logger.info(f"📊 {pair} | precio={current_price:.2f}€ | señal={signal['signal']} ({signal['confidence']:.0%}) | probs={signal.get('probabilities', {})} | ATR={atr:.2f}")
 
         await self.redis.publish("bot:live_updates", json.dumps({
             "type": "signal",
