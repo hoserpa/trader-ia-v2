@@ -60,11 +60,11 @@ def get_redis():
     return redis_client
 
 
-app.include_router(portfolio.router, prefix="/portfolio", tags=["Portfolio"], dependencies=[Depends(verify_credentials)])
-app.include_router(trades.router, prefix="/trades", tags=["Trades"], dependencies=[Depends(verify_credentials)])
-app.include_router(market.router, prefix="/market", tags=["Market"], dependencies=[Depends(verify_credentials)])
-app.include_router(bot.router, prefix="/bot", tags=["Bot"], dependencies=[Depends(verify_credentials)])
-app.include_router(logs.router, prefix="/logs", tags=["Logs"], dependencies=[Depends(verify_credentials)])
+app.include_router(portfolio.router, prefix="/api/portfolio", tags=["Portfolio"], dependencies=[Depends(verify_credentials)])
+app.include_router(trades.router, prefix="/api/trades", tags=["Trades"], dependencies=[Depends(verify_credentials)])
+app.include_router(market.router, prefix="/api/market", tags=["Market"], dependencies=[Depends(verify_credentials)])
+app.include_router(bot.router, prefix="/api/bot", tags=["Bot"], dependencies=[Depends(verify_credentials)])
+app.include_router(logs.router, prefix="/api/logs", tags=["Logs"], dependencies=[Depends(verify_credentials)])
 
 from api.websocket.live import router as ws_router
 app.include_router(ws_router)
