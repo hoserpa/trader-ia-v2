@@ -77,7 +77,8 @@ class ModelPredictor:
             else:
                 predictions = self.model.predict(X_scaled)
                 logger.debug(f"Predictions type: {type(predictions)}, shape: {predictions.shape}, value: {predictions}")
-                best_class = int(predictions[0])
+                pred_array = predictions[0] if predictions.ndim > 1 else predictions
+                best_class = int(np.argmax(pred_array))
                 confidence = 0.8
                 prob_dict = {self.SIGNAL_MAP[best_class]: confidence}
                 for other_class in [0, 1, 2]:
