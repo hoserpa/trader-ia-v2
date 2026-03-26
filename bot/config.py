@@ -45,7 +45,7 @@ class RiskConfig:
 @dataclass
 class DatabaseConfig:
     sqlite_path: str = field(default_factory=lambda: os.getenv("SQLITE_DB_PATH", "/app/data/crypto_trader.db"))
-    redis_host: str = field(default_factory=lambda: os.getenv("REDIS_HOST", "crypto_redis"))
+    redis_host: str = field(default_factory=lambda: os.getenv("REDIS_HOST", "redis"))
     redis_port: int = field(default_factory=lambda: int(os.getenv("REDIS_PORT", "6379")))
     redis_db: int = field(default_factory=lambda: int(os.getenv("REDIS_DB", "0")))
 
