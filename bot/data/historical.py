@@ -18,6 +18,7 @@ async def fetch_and_store_historical(pair: str, days: int = 90) -> int:
         "apiKey": config.exchange.api_key,
         "secret": config.exchange.api_secret,
         "enableRateLimit": True,
+        "timeout": 30000,
     })
 
     since = int((datetime.utcnow() - timedelta(days=days)).timestamp() * 1000)
@@ -27,8 +28,19 @@ async def fetch_and_store_historical(pair: str, days: int = 90) -> int:
 
     logger.info(f"Descargando histórico {pair} ({days} días, {timeframe})...")
     try:
+        await exchange.load_markets()
+    except Exception as e:
+        logger.error(f"No se pudo cargar mercados para {pair}: {e}")
+        await exchange.close()
+        return 0
+
+    try:
         while True:
-            ohlcv = await exchange.fetch_ohlcv(pair, timeframe=timeframe, since=since, limit=limit)
+            try:
+                ohlcv = await exchange.fetch_ohlcv(pair, timeframe=timeframe, since=since, limit=limit)
+            except Exception as e:
+                logger.warning(f"Error descargando {pair}, continuando: {e}")
+                break
             if not ohlcv:
                 break
             all_candles.extend(ohlcv)
@@ -64,4 +76,8 @@ async def fetch_and_store_historical(pair: str, days: int = 90) -> int:
 async def initialize_historical_data(days: int = 90) -> None:
     """Inicializa el histórico para todos los pares configurados."""
     tasks = [fetch_and_store_historical(pair, days) for pair in config.trading.pairs]
-    await asyncio.gather(*tasks)
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    for pair, result in zip(config.trading.pairs, results):
+        if isinstance(result, Exception):
+            logger.error(f"Error obteniendo datos históricos para {pair}: {result}")
