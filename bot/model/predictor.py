@@ -28,7 +28,7 @@ class ModelPredictor:
             return
         try:
             self.model = joblib.load(config.model.model_path)
-            self.model = joblib.load(config.model.scaler_path)
+            self.scaler = joblib.load(config.model.scaler_path)
 
             metadata_path = config.model.model_path.replace(".pkl", "_metadata.json")
             if os.path.exists(metadata_path):
@@ -38,12 +38,17 @@ class ModelPredictor:
 
             logger.info(f"Modelo cargado. Entrenado: {self.metadata.get('trained_at', 'desconocido')}")
             logger.info(f"Métricas validación: {self.metadata.get('validation_metrics', {})}")
+            logger.info(f"Feature names: {self.feature_names[:5]}...")
         except Exception as e:
             logger.error(f"Error cargando modelo: {e}")
             self.model = None
+            self.scaler = None
 
     def is_model_loaded(self) -> bool:
-        return self.model is not None and self.scaler is not None
+        loaded = self.model is not None and self.scaler is not None
+        if not loaded:
+            logger.warning(f"is_model_loaded(): False - model={self.model is not None}, scaler={self.scaler is not None}")
+        return loaded
 
     def predict(self, features: pd.Series) -> Optional[dict]:
         """Realiza predicción para el vector de features dado.
@@ -94,12 +99,17 @@ class ModelPredictor:
     def reload_if_updated(self) -> None:
         """Recarga el modelo si el archivo ha sido actualizado."""
         if not os.path.exists(config.model.model_path):
+            logger.warning("reload_if_updated: modelo no encontrado")
             return
         mtime = os.path.getmtime(config.model.model_path)
         if mtime > self.metadata.get("_file_mtime", 0):
             logger.info("Modelo actualizado detectado, recargando...")
             self._load()
-            self.metadata["_file_mtime"] = mtime
+            if self.is_model_loaded():
+                self.metadata["_file_mtime"] = mtime
+                logger.info("Modelo recargado correctamente")
+            else:
+                logger.error("Error al recargar el modelo")
 
     def get_model_metadata(self) -> dict:
         return {
