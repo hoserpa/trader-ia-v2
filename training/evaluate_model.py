@@ -60,7 +60,7 @@ def run_backtest(df: pd.DataFrame, model, scaler, buy_threshold: float, sell_thr
     X = df[FEATURE_COLS].values
     X = scaler.transform(X)
     
-    proba = model.predict(X)
+    proba = model.predict_proba(X)
     signals = []
     
     position_open = False
@@ -262,7 +262,7 @@ def main():
     X = scaler.transform(X)
     y = df["label"].astype(int).values
     
-    proba = model.predict(X)
+    proba = model.predict_proba(X)
     predictions = np.argmax(proba, axis=1)
     
     test_metrics = {

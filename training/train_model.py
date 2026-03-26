@@ -79,7 +79,7 @@ def optimize_threshold(model, X_val, y_val, confidence_thresholds: list):
     best_threshold = 0.70
     best_precision = 0
     
-    proba = model.predict(X_val)
+    proba = model.predict_proba(X_val)
     
     for threshold in confidence_thresholds:
         predictions = []
@@ -138,7 +138,7 @@ def train_lightgbm(X_train, y_train, X_val, y_val):
 
 def evaluate_model(model, X, y, threshold: float):
     """Evalúa modelo con threshold personalizado."""
-    proba = model.predict(X)
+    proba = model.predict_proba(X)
     predictions = []
     
     for probs in proba:
@@ -200,7 +200,7 @@ def main():
         logger.info(f"  {k}: {v:.4f}")
     
     logger.info("\nClassification Report (test):")
-    proba_test = model.predict(X_test)
+    proba_test = model.predict_proba(X_test)
     predictions_test = np.argmax(proba_test, axis=1)
     logger.info("\n" + classification_report(y_test, predictions_test, target_names=["SELL", "HOLD", "BUY"]))
     
