@@ -43,10 +43,29 @@ class DataCollector:
     async def start(self) -> None:
         self._running = True
         logger.info(f"Iniciando recolección de datos para pares: {config.trading.pairs}")
-        await asyncio.gather(
-            self._run_websocket_loop(),
-            self._run_ohlcv_loop(),
-        )
+        
+        if await self._check_websocket_support():
+            logger.info("WebSocket soportado, usando streaming en tiempo real.")
+            await asyncio.gather(
+                self._run_websocket_loop(),
+                self._run_ohlcv_loop(),
+            )
+        else:
+            logger.info("WebSocket no disponible, usando polling REST.")
+            await asyncio.gather(
+                self._run_polling_loop(),
+                self._run_ohlcv_loop(),
+            )
+
+    async def _check_websocket_support(self) -> bool:
+        """Verifica si el exchange soporta WebSocket para tickers."""
+        try:
+            await self.exchange.load_markets()
+            if hasattr(self.exchange, 'watch_tickers'):
+                return True
+            return False
+        except Exception:
+            return False
 
     async def stop(self) -> None:
         self._running = False
@@ -64,6 +83,31 @@ class DataCollector:
                 logger.warning(f"WebSocket desconectado: {e}. Reconectando en {delay}s...")
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, self._max_reconnect_delay)
+
+    async def _run_polling_loop(self) -> None:
+        """Fallback: consulta precios por REST cada 30s cuando WebSocket no está disponible."""
+        poll_interval = 30
+        while self._running:
+            try:
+                for pair in config.trading.pairs:
+                    try:
+                        ticker = await self.exchange.fetch_ticker(pair)
+                        price = ticker.get("last")
+                        if price:
+                            await self.redis.set(
+                                self.REDIS_PRICE_KEY.format(pair=pair),
+                                str(price),
+                                ex=60,
+                            )
+                            await self.redis.publish(
+                                "price_update",
+                                json.dumps({"pair": pair, "price": price, "timestamp": datetime.utcnow().isoformat()}),
+                            )
+                    except Exception as e:
+                        logger.warning(f"Error consultando precio {pair}: {e}")
+            except Exception as e:
+                logger.error(f"Error en polling loop: {e}")
+            await asyncio.sleep(poll_interval)
 
     async def _watch_tickers(self) -> None:
         """Suscripción a precios en tiempo real via ccxt WebSocket."""
