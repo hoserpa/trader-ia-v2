@@ -3,29 +3,6 @@ const { createApp, ref, computed, onMounted, onUnmounted, nextTick } = Vue;
 const API_BASE = '/api';
 const WS_URL = `ws://${location.host}/ws/live`;
 
-let api = axios.create({ baseURL: API_BASE });
-
-const getAuth = async () => {
-  const stored = localStorage.getItem('auth');
-  if (stored) return JSON.parse(stored);
-
-  const res = await axios.get(`${API_BASE}/config/public`);
-  const username = res.data.username;
-  const password = prompt(`Introduce la contraseña para ${username}:`) || '';
-  const auth = { username, password };
-  localStorage.setItem('auth', JSON.stringify(auth));
-  return auth;
-};
-
-let authConfig = null;
-getAuth().then(a => {
-  authConfig = a;
-  api = axios.create({
-    baseURL: API_BASE,
-    auth: { username: a.username, password: a.password }
-  });
-});
-
 createApp({
   setup() {
     const portfolio = ref({ total_value_eur: 0, balance_eur: 0, total_pnl_eur: 0, total_pnl_pct: 0, positions: {} });

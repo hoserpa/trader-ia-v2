@@ -1,9 +1,7 @@
 """FastAPI backend — REST API y WebSocket para el dashboard."""
 import json
-import secrets
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import redis.asyncio as aioredis
@@ -35,18 +33,6 @@ async def manifest():
 async def icon():
     return FileResponse(os.path.join(frontend_path, "icon.png"), media_type="image/png")
 
-security = HTTPBasic()
-
-
-def verify_credentials(credentials: HTTPBasicCredentials = Depends(security)):
-    ok_user = secrets.compare_digest(credentials.username.encode(), config.api.username.encode())
-    ok_pass = secrets.compare_digest(credentials.password.encode(), config.api.password.encode())
-    if not (ok_user and ok_pass):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                            headers={"WWW-Authenticate": "Basic"})
-    return credentials.username
-
-
 redis_client: aioredis.Redis = None
 
 
@@ -68,11 +54,11 @@ def get_redis():
     return redis_client
 
 
-app.include_router(portfolio.router, prefix="/api/portfolio", tags=["Portfolio"], dependencies=[Depends(verify_credentials)])
-app.include_router(trades.router, prefix="/api/trades", tags=["Trades"], dependencies=[Depends(verify_credentials)])
-app.include_router(market.router, prefix="/api/market", tags=["Market"], dependencies=[Depends(verify_credentials)])
-app.include_router(bot.router, prefix="/api/bot", tags=["Bot"], dependencies=[Depends(verify_credentials)])
-app.include_router(logs.router, prefix="/api/logs", tags=["Logs"], dependencies=[Depends(verify_credentials)])
+app.include_router(portfolio.router, prefix="/api/portfolio", tags=["Portfolio"])
+app.include_router(trades.router, prefix="/api/trades", tags=["Trades"])
+app.include_router(market.router, prefix="/api/market", tags=["Market"])
+app.include_router(bot.router, prefix="/api/bot", tags=["Bot"])
+app.include_router(logs.router, prefix="/api/logs", tags=["Logs"])
 
 from api.websocket.live import router as ws_router
 app.include_router(ws_router)
@@ -86,8 +72,3 @@ async def health(redis: aioredis.Redis = Depends(get_redis)):
     except Exception:
         redis_ok = False
     return {"status": "ok", "redis": redis_ok, "version": "1.0.0"}
-
-
-@app.get("/api/config/public")
-async def public_config():
-    return {"username": config.api.username}
