@@ -20,6 +20,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 .status-text { font-size: 0.8rem; color: #9ca3af; }
 .status-text.starting { color: #fbbf24; }
+.status-text.error { color: #f87171; }
 .topbar-prices { display: flex; gap: 12px; flex-wrap: wrap; }
 .price-chip { font-size: 0.8rem; color: #9ca3af; }
 .price-chip strong { color: #e7e9ea; }
