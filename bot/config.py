@@ -20,8 +20,8 @@ class TradingConfig:
     pairs: list = field(default_factory=lambda: os.getenv("TRADING_PAIRS", "BTC/EUR,ETH/EUR,SOL/EUR").split(","))
     base_currency: str = field(default_factory=lambda: os.getenv("BASE_CURRENCY", "EUR"))
     demo_initial_balance: float = field(default_factory=lambda: float(os.getenv("DEMO_INITIAL_BALANCE", "1000.0")))
-    analysis_interval: int = field(default_factory=lambda: int(os.getenv("ANALYSIS_INTERVAL_SECONDS", "300")))
-    timeframe: str = field(default_factory=lambda: os.getenv("MODEL_TIMEFRAME", "5m"))
+    analysis_interval: int = field(default_factory=lambda: int(os.getenv("ANALYSIS_INTERVAL_SECONDS", "3600")))
+    timeframe: str = field(default_factory=lambda: os.getenv("MODEL_TIMEFRAME", "1h"))
     candles_required: int = field(default_factory=lambda: int(os.getenv("MODEL_CANDLES_REQUIRED", "200")))
 
     def is_demo(self) -> bool:
