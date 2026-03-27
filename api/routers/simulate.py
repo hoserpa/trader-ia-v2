@@ -305,7 +305,7 @@ def run_simulation(db_path: str, days: int = 30) -> dict:
     }
 
 
-@router.get("/simulate")
+@router.get("/")
 async def simulate(
     days: int = Query(default=30, ge=7, le=90),
     download_data: bool = Query(default=False),
