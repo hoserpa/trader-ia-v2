@@ -4,6 +4,7 @@ import json
 from datetime import datetime
 from loguru import logger
 import redis.asyncio as aioredis
+import ccxt
 from config import config
 from data.collector import DataCollector
 from indicators.technical import calculate_indicators, get_atr, get_current_price
@@ -18,6 +19,43 @@ from database.crud import (
     save_decision, save_portfolio_snapshot, get_open_position_by_pair, get_open_positions
 )
 from database.init_db import SessionLocal
+
+
+class RetryableError(Exception):
+    """Error transitorio que no debería marcar el bot como fallido (timeout, rate limit, etc)."""
+    pass
+
+
+def _is_retryable_error(e: Exception) -> bool:
+    """Determina si un error es transitorio y no debe marcar el bot como error."""
+    error_msg = str(e).lower()
+    retryable_patterns = [
+        "timeout",
+        "timed out",
+        "rate limit",
+        "too many requests",
+        "429",
+        "503",
+        "502",
+        "504",
+        "connection",
+        "network",
+        "econnreset",
+        "econnrefused",
+        "etimedout",
+        "temporary failure",
+        "service unavailable",
+        "bad gateway",
+        "gateway timeout",
+        "fetch failed",
+        "none from fetch",
+    ]
+    if isinstance(e, ccxt.NetworkError):
+        return True
+    if isinstance(e, ccxt.ExchangeError):
+        if any(p in error_msg for p in ["rate limit", "too many requests", "429"]):
+            return True
+    return any(p in error_msg for p in retryable_patterns)
 
 
 class TradingEngine:
@@ -72,9 +110,14 @@ class TradingEngine:
             for pair in config.trading.pairs:
                 try:
                     await self._analyze_pair(pair)
+                except RetryableError as e:
+                    logger.warning(f"⚠️ Error transitorio analizando {pair}: {e}")
                 except Exception as e:
-                    logger.error(f"Error analizando {pair}: {e}")
-                    self._status = "error"
+                    if _is_retryable_error(e):
+                        logger.warning(f"⚠️ Error de red/transitorio analizando {pair}: {e}")
+                    else:
+                        logger.error(f"❌ Error fatal analizando {pair}: {e}")
+                        self._status = "error"
 
             await self._save_portfolio_snapshot()
             await self._publish_status()
@@ -88,14 +131,28 @@ class TradingEngine:
 
     async def _analyze_pair(self, pair: str) -> None:
         """Análisis completo de un par: datos → indicadores → features → señal → ejecución."""
-        candles = await self.collector.get_latest_candles(pair, limit=config.trading.candles_required)
+        try:
+            candles = await self.collector.get_latest_candles(pair, limit=config.trading.candles_required)
+        except Exception as e:
+            if _is_retryable_error(e):
+                raise RetryableError(f"Error obteniendo velas para {pair}: {e}")
+            raise
+
         if candles.empty or len(candles) < 55:
             logger.debug(f"{pair}: datos insuficientes ({len(candles)} velas)")
             return
 
         candles_with_indicators = calculate_indicators(candles)
         atr = get_atr(candles_with_indicators)
-        current_price = await self.collector.get_current_price(pair) or get_current_price(candles_with_indicators)
+
+        try:
+            current_price = await self.collector.get_current_price(pair)
+        except Exception as e:
+            if _is_retryable_error(e):
+                raise RetryableError(f"Error obteniendo precio para {pair}: {e}")
+            raise
+
+        current_price = current_price or get_current_price(candles_with_indicators)
 
         features = self.feature_builder.build_features(candles_with_indicators)
         if features is None:
