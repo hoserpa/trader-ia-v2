@@ -1,6 +1,7 @@
 """Inferencia del modelo LightGBM entrenado."""
 import os
 import json
+import warnings
 import joblib
 from datetime import datetime
 from typing import Optional
@@ -8,6 +9,8 @@ import pandas as pd
 import numpy as np
 from loguru import logger
 from config import config
+
+warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
 
 
 class ModelPredictor:

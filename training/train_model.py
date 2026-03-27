@@ -7,6 +7,7 @@ import argparse
 from datetime import datetime
 from pathlib import Path
 import json
+import warnings
 import numpy as np
 import pandas as pd
 import lightgbm as lgb
@@ -19,6 +20,8 @@ from sklearn.metrics import (
 from sklearn.metrics import roc_auc_score
 import joblib
 from loguru import logger
+
+warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
 
 Path("logs").mkdir(exist_ok=True)
 

@@ -6,6 +6,7 @@ Usage:
 import argparse
 from pathlib import Path
 import json
+import warnings
 import numpy as np
 import pandas as pd
 import joblib
@@ -17,6 +18,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from loguru import logger
+
+warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
 
 Path("logs").mkdir(exist_ok=True)
 
