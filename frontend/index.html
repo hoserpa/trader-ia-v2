@@ -121,12 +121,11 @@
   </section>
 
   <section>
-    <h2>Log del sistema</h2>
+    <h2>Logs</h2>
     <div class="log-container" ref="logContainer">
+      <div v-if="!systemLogs.length" class="log-empty">Sin logs recientes</div>
       <div v-for="log in systemLogs" :key="log.id" class="log-line" :class="'log-'+log.level.toLowerCase()">
-        <span class="log-time">{{ formatDate(log.timestamp) }}</span>
-        <span class="log-level">{{ log.level }}</span>
-        <span class="log-module">{{ log.module }}</span>
+        <span class="log-badge" :class="'log-'+log.level.toLowerCase()">{{ log.level }}</span>
         <span class="log-msg">{{ log.message }}</span>
       </div>
     </div>

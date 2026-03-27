@@ -59,16 +59,14 @@ h2 { font-size: 1rem; font-weight: 600; margin-bottom: 12px; width: 100%; }
 .data-table th { background: #2d333b; font-weight: 600; font-size: 0.75rem; color: #9ca3af; position: sticky; top: 0; }
 .data-table tr:not(:last-child) td { border-bottom: 1px solid #2d333b; }
 
-.log-container { background: #1c1f26; border-radius: 12px; padding: 12px; max-height: 250px; overflow-y: auto; font-family: monospace; font-size: 0.75rem; -webkit-overflow-scrolling: touch; }
-.log-line { display: flex; gap: 8px; padding: 4px 0; border-bottom: 1px solid #2d333b; flex-wrap: wrap; }
-.log-time { color: #6b7280; }
-.log-level { font-weight: 600; width: 45px; }
-.log-level.INFO { color: #60a5fa; }
-.log-level.WARNING { color: #fbbf24; }
-.log-level.ERROR { color: #f87171; }
-.log-level.DEBUG { color: #9ca3af; }
-.log-module { color: #a5b4fc; width: 80px; }
-.log-msg { color: #e7e9ea; flex: 1; min-width: 200px; }
+.log-container { background: #1c1f26; border-radius: 12px; padding: 12px; max-height: 200px; overflow-y: auto; font-size: 0.75rem; }
+.log-empty { color: #6b7280; text-align: center; padding: 20px; }
+.log-line { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; border-bottom: 1px solid #2d333b; }
+.log-badge { font-size: 0.65rem; font-weight: 600; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; flex-shrink: 0; }
+.log-badge.log-info { background: #1e3a5f; color: #60a5fa; }
+.log-badge.log-error { background: #5f1e1e; color: #f87171; }
+.log-badge.log-warning { background: #5f4a1e; color: #fbbf24; }
+.log-msg { color: #9ca3af; flex: 1; line-height: 1.4; word-break: break-word; }
 
 @media (min-width: 768px) {
   #app { padding: 20px; }
@@ -97,11 +95,7 @@ h2 { font-size: 1rem; font-weight: 600; margin-bottom: 12px; width: 100%; }
   .table-wrapper { margin: 0; padding: 0; }
   .data-table { min-width: auto; }
   .data-table th, .data-table td { padding: 12px 16px; font-size: 0.9rem; }
-  .log-container { padding: 16px; max-height: 300px; font-size: 0.8125rem; }
-  .log-line { gap: 12px; }
-  .log-level { width: 50px; }
-  .log-module { width: 100px; }
-  .log-msg { min-width: auto; }
+  .log-container { max-height: 250px; }
 }
 
 @media (orientation: landscape) and (max-height: 500px) {
