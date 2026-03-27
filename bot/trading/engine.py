@@ -73,9 +73,12 @@ class TradingEngine:
         self._status = "stopped"
 
     async def start(self) -> None:
+        self._status = "starting"
+        await self._publish_status()
+        logger.info("Iniciando motor de trading...")
+
         await self.portfolio.initialize()
         self._running = True
-        self._status = "running"
 
         if config.trading.is_demo():
             self.trader = DemoTrader(self.portfolio, self.risk_manager)
@@ -84,7 +87,6 @@ class TradingEngine:
             self.trader = RealTrader(self.portfolio, self.risk_manager)
             logger.warning("⚠️  Modo REAL activado — se operará con dinero real.")
 
-        await self._publish_status()
         self._status = "running"
         await self._publish_status()
         logger.info(f"Motor de trading iniciado. Intervalo: {config.trading.analysis_interval}s")

@@ -107,7 +107,13 @@ createApp({
     const formatPrice = (v) => v != null ? Number(v).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
     const formatDate = (ts) => new Date(ts).toLocaleString('es-ES');
     const modeClass = computed(() => botStatus.value.mode === 'real' ? 'badge-real' : 'badge-demo');
-    const statusClass = computed(() => ({ 'dot-green': botStatus.value.status === 'running', 'dot-red': botStatus.value.status === 'error', 'dot-gray': botStatus.value.status !== 'running' && botStatus.value.status !== 'error' }));
+    const statusClass = computed(() => ({ 
+      'dot-green': botStatus.value.status === 'running', 
+      'dot-red': botStatus.value.status === 'error', 
+      'dot-yellow': botStatus.value.status === 'starting',
+      'dot-gray': botStatus.value.status !== 'running' && botStatus.value.status !== 'error' && botStatus.value.status !== 'starting'
+    }));
+    const statusTextClass = computed(() => botStatus.value.status === 'starting' ? 'starting' : '');
     const openPositions = computed(() => Object.keys(portfolio.value.positions || {}));
     const signalClass = (s) => ({ 'badge-buy': s === 'BUY', 'badge-sell': s === 'SELL', 'badge-hold': s === 'HOLD' });
 
@@ -126,7 +132,7 @@ createApp({
     return {
       portfolio, botStatus, botConfig, prices, trades, systemLogs,
       latestSignals, stats, historyDays, logContainer, openPositions,
-      formatPrice, formatDate, modeClass, statusClass, signalClass,
+      formatPrice, formatDate, modeClass, statusClass, statusTextClass, signalClass,
       loadPortfolioHistory,
     };
   }

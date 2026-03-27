@@ -16,7 +16,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 .dot-green { background: #4ade80; }
 .dot-red { background: #f87171; }
 .dot-gray { background: #6b7280; }
+.dot-yellow { background: #fbbf24; animation: pulse 1.5s infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 .status-text { font-size: 0.8rem; color: #9ca3af; }
+.status-text.starting { color: #fbbf24; }
 .topbar-prices { display: flex; gap: 12px; flex-wrap: wrap; }
 .price-chip { font-size: 0.8rem; color: #9ca3af; }
 .price-chip strong { color: #e7e9ea; }
