@@ -71,6 +71,8 @@ class TradingEngine:
         self.telegram = TelegramNotifier()
         self._running = False
         self._status = "stopped"
+        self._consecutive_errors = 0
+        self._peak_portfolio = 0
 
     async def start(self) -> None:
         self._status = "starting"
@@ -87,6 +89,8 @@ class TradingEngine:
             self.trader = RealTrader(self.portfolio, self.risk_manager)
             logger.warning("⚠️  Modo REAL activado — se operará con dinero real.")
 
+        await self.telegram.notify_bot_started()
+
         self._status = "running"
         await self._publish_status()
         logger.info(f"Motor de trading iniciado. Intervalo: {config.trading.analysis_interval}s")
@@ -99,6 +103,7 @@ class TradingEngine:
         self._running = False
         self._status = "stopped"
         await self.collector.stop()
+        await self.telegram.notify_bot_stopped()
         await self._publish_status()
         logger.info("Motor de trading detenido.")
 
@@ -108,6 +113,7 @@ class TradingEngine:
 
         while self._running:
             start_time = asyncio.get_event_loop().time()
+            cycle_had_error = False
 
             for pair in config.trading.pairs:
                 try:
@@ -115,14 +121,27 @@ class TradingEngine:
                 except RetryableError as e:
                     logger.warning(f"⚠️ Error transitorio analizando {pair}: {e}")
                 except Exception as e:
+                    cycle_had_error = True
                     if _is_retryable_error(e):
                         logger.warning(f"⚠️ Error de red/transitorio analizando {pair}: {e}")
                     else:
                         logger.error(f"❌ Error fatal analizando {pair}: {e}")
                         self._status = "error"
 
+            if cycle_had_error:
+                self._consecutive_errors += 1
+                if self._consecutive_errors >= 3:
+                    await self.telegram.notify_warning(
+                        f"⚠️ *{self._consecutive_errors} errores consecutivos*\n"
+                        f"El bot ha tenido errores en los últimos ciclos."
+                    )
+            else:
+                self._consecutive_errors = 0
+
             await self._save_portfolio_snapshot()
             await self._publish_status()
+
+            await self._check_drawdown()
 
             self.predictor.reload_if_updated()
 
@@ -130,6 +149,24 @@ class TradingEngine:
             sleep_time = max(0, config.trading.analysis_interval - elapsed)
             logger.debug(f"Ciclo completado en {elapsed:.1f}s. Siguiente en {sleep_time:.0f}s.")
             await asyncio.sleep(sleep_time)
+
+    async def _check_drawdown(self) -> None:
+        """Notifica si el drawdown supera el umbral."""
+        portfolio_state = self.portfolio.get()
+        current_value = portfolio_state.get("total_value_eur", 0)
+        
+        if current_value > self._peak_portfolio:
+            self._peak_portfolio = current_value
+        
+        if self._peak_portfolio > 0:
+            drawdown = (self._peak_portfolio - current_value) / self._peak_portfolio
+            if drawdown > 0.10:
+                await self.telegram.notify_warning(
+                    f"📉 *Alerta Drawdown*\n"
+                    f"Current: `{current_value:.2f}€`\n"
+                    f"Peak: `{self._peak_portfolio:.2f}€`\n"
+                    f"Drawdown: `{drawdown*100:.1f}%`"
+                )
 
     async def _analyze_pair(self, pair: str) -> None:
         """Análisis completo de un par: datos → indicadores → features → señal → ejecución."""

@@ -130,22 +130,78 @@ def get_recent_decisions(db: Session, limit: int = 50) -> list[ModelDecision]:
 
 
 def get_stats_summary(db: Session) -> dict:
+    today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    
     total_trades = db.query(func.count(Trade.id)).scalar()
     closed_positions = db.query(Position).filter_by(status="closed").all()
+    
+    today_trades = db.query(Trade).filter(Trade.timestamp >= today).all()
+    today_winners = [t for t in today_trades if t.side == "sell" and t.pnl_eur and t.pnl_eur > 0]
+    today_losers = [t for t in today_trades if t.side == "sell" and t.pnl_eur and t.pnl_eur <= 0]
+    
+    today_errors = db.query(func.count(SystemLog.id)).filter(
+        SystemLog.timestamp >= today,
+        SystemLog.level.in_(["ERROR", "CRITICAL"])
+    ).scalar() or 0
+    
     if not closed_positions:
-        return {"total_trades": total_trades, "win_rate": 0, "avg_pnl_pct": 0, "total_pnl_eur": 0}
+        return {
+            "total_trades": total_trades,
+            "win_rate": 0,
+            "avg_pnl_pct": 0,
+            "total_pnl_eur": 0,
+            "trades_today": len(today_trades),
+            "wins_today": len(today_winners),
+            "losses_today": len(today_losers),
+            "best_trade": 0,
+            "worst_trade": 0,
+            "max_drawdown": 0,
+            "errors_today": today_errors,
+        }
 
     winners = [p for p in closed_positions if p.pnl_eur and p.pnl_eur > 0]
+    losers = [p for p in closed_positions if p.pnl_eur and p.pnl_eur <= 0]
     total_pnl = sum(p.pnl_eur for p in closed_positions if p.pnl_eur)
-    avg_pnl_pct = sum(p.pnl_pct for p in closed_positions if p.pnl_pct) / len(closed_positions)
+    avg_pnl_pct = sum(p.pnl_pct for p in closed_positions if p.pnl_pct) / len(closed_positions) if closed_positions else 0
+    
+    best_trade = max((p.pnl_eur for p in closed_positions if p.pnl_eur), default=0)
+    worst_trade = min((p.pnl_eur for p in closed_positions if p.pnl_eur), default=0)
+    
+    max_drawdown = calculate_max_drawdown_from_snapshots(db)
 
     return {
         "total_trades": total_trades,
         "closed_positions": len(closed_positions),
-        "win_rate": len(winners) / len(closed_positions) * 100,
+        "win_rate": len(winners) / len(closed_positions) * 100 if closed_positions else 0,
         "avg_pnl_pct": avg_pnl_pct,
         "total_pnl_eur": total_pnl,
+        "trades_today": len(today_trades),
+        "wins_today": len(today_winners),
+        "losses_today": len(today_losers),
+        "best_trade": best_trade,
+        "worst_trade": worst_trade,
+        "max_drawdown": max_drawdown,
+        "errors_today": today_errors,
     }
+
+
+def calculate_max_drawdown_from_snapshots(db: Session) -> float:
+    snapshots = db.query(PortfolioSnapshot).order_by(PortfolioSnapshot.timestamp).all()
+    if len(snapshots) < 2:
+        return 0.0
+    
+    values = [s.total_value_eur for s in snapshots]
+    peak = values[0]
+    max_dd = 0.0
+    
+    for value in values:
+        if value > peak:
+            peak = value
+        drawdown = (peak - value) / peak if peak > 0 else 0
+        if drawdown > max_dd:
+            max_dd = drawdown
+    
+    return max_dd * 100
 
 
 def save_log(db: Session, level: str, module: str, message: str, extra: dict = None):
