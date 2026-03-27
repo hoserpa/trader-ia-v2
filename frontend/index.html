@@ -23,7 +23,7 @@
       <span class="logo">🤖 CryptoBot</span>
       <span class="badge" :class="modeClass">{{ botStatus.mode?.toUpperCase() || 'DEMO' }}</span>
       <span class="status-dot" :class="statusClass"></span>
-      <span class="status-text" :class="statusTextClass">{{ botStatus.status === 'starting' ? 'Iniciando...' : (botStatus.status || 'Conectando...') }}</span>
+      <span class="status-text" :class="statusTextClass()">{{ botStatus.status === 'starting' ? 'Iniciando...' : (botStatus.status || 'Conectando...') }}</span>
     </div>
     <div class="topbar-prices">
       <span v-for="(price, pair) in prices" :key="pair" class="price-chip">
