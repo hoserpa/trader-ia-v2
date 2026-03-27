@@ -26,6 +26,7 @@ services:
       - ./bot/model:/app/model
       - ./data:/app/data
       - ./frontend:/app/frontend
+      - ./logs:/app/logs
     env_file:
       - .env
     extra_hosts:
@@ -46,6 +47,7 @@ services:
     volumes:
       - ./bot/model:/app/model
       - ./data:/app/data
+      - ./logs:/app/logs
     env_file:
       - .env
     extra_hosts:
