@@ -2,6 +2,7 @@ const { createApp, ref, computed, onMounted, onUnmounted, nextTick } = Vue;
 
 const API_BASE = '/api';
 const WS_URL = `ws://${location.host}/ws/live`;
+const api = axios.create({ baseURL: API_BASE });
 
 createApp({
   setup() {
