@@ -113,7 +113,7 @@ createApp({
       'dot-yellow': botStatus.value.status === 'starting',
       'dot-gray': botStatus.value.status !== 'running' && botStatus.value.status !== 'error' && botStatus.value.status !== 'starting'
     }));
-    const statusTextClass = () => botStatus.value.status === 'starting' ? 'starting' : '';
+    const statusTextClass = computed(() => botStatus.value.status === 'starting' ? 'starting' : '');
     const openPositions = computed(() => Object.keys(portfolio.value.positions || {}));
     const signalClass = (s) => ({ 'badge-buy': s === 'BUY', 'badge-sell': s === 'SELL', 'badge-hold': s === 'HOLD' });
 
