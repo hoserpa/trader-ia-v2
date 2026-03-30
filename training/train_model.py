@@ -195,6 +195,13 @@ def main():
     thresholds = [0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80]
     best_threshold = optimize_threshold(model, X_val, y_val, thresholds)
     
+    logger.info("Evaluando en validation set...")
+    val_metrics, _ = evaluate_model(model, X_val, y_val, best_threshold)
+    
+    logger.info("Métricas en validation set:")
+    for k, v in val_metrics.items():
+        logger.info(f"  {k}: {v:.4f}")
+    
     logger.info("Evaluando en test set...")
     test_metrics, _ = evaluate_model(model, X_test, y_test, best_threshold)
     
@@ -221,6 +228,7 @@ def main():
         "n_samples_test": len(test_df),
         "feature_cols": FEATURE_COLS,
         "confidence_threshold": best_threshold,
+        "validation_metrics": val_metrics,
         "test_metrics": test_metrics,
         "lgb_params": model.get_params()
     }

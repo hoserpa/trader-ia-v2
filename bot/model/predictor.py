@@ -113,8 +113,10 @@ class ModelPredictor:
             logger.warning("reload_if_updated: modelo no encontrado")
             return
         mtime = os.path.getmtime(config.model.model_path)
-        if mtime > self.metadata.get("_file_mtime", 0):
-            logger.info("Modelo actualizado detectado, recargando...")
+        stored_mtime = self.metadata.get("_file_mtime", 0)
+        logger.debug(f"reload_if_updated: mtime={mtime}, stored={stored_mtime}")
+        if mtime > stored_mtime:
+            logger.info(f"Modelo actualizado detectado (mtime={mtime}), recargando...")
             self._load()
             if self.is_model_loaded():
                 self.metadata["_file_mtime"] = mtime
