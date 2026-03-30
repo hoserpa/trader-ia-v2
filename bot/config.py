@@ -39,6 +39,7 @@ class RiskConfig:
     take_profit_atr_multiplier: float = field(default_factory=lambda: float(os.getenv("TAKE_PROFIT_ATR_MULTIPLIER", "3.0")))
     max_daily_trades: int = field(default_factory=lambda: int(os.getenv("MAX_DAILY_TRADES", "20")))
     high_volatility_atr_threshold: float = field(default_factory=lambda: float(os.getenv("HIGH_VOLATILITY_ATR_THRESHOLD", "0.05")))
+    min_confidence_threshold: float = field(default_factory=lambda: float(os.getenv("MIN_CONFIDENCE_THRESHOLD", "0.0")))
     min_trade_eur: float = 10.0
 
 
