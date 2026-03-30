@@ -132,29 +132,24 @@ Historial de simulaciones realizadas con el bot de trading para comparar diferen
 
 ## Nueva Configuración Aplicada
 
-**Fecha:** 2026-03-30
+**Fecha:** 2026-03-30  
+**Estado:** REVETIDA - Volvemos a configuración original (Simulación 1)
 
-| Parámetro | Anterior | Nuevo |
-|-----------|----------|-------|
-| BUY_THRESHOLD | 0.40 | 0.40 |
-| SELL_THRESHOLD | 0.40 | **0.50** |
-| STOP_LOSS_ATR_MULTIPLIER | 1.5 | **2.0** |
-| TAKE_PROFIT_ATR_MULTIPLIER | 3.0 | **3.5** |
-| MAX_DAILY_TRADES | 20 | **10** |
-
-### Razón de los cambios
-- **SELL_THRESHOLD 0.50**: El modelo tiene baja precisión en señales SELL (0.547), ser más selectivo reduce falsos positivos
-- **STOP_LOSS 2.0x**: Más espacio para evitar stops prematuros por ruido
-- **TAKE_PROFIT 3.5x**: Mejor ratio riesgo/beneficio (1:1.75)
-- **MAX_DAILY_TRADES 10**: Reducir comisiones y operaciones de baja calidad
+| Parámetro | Valor |
+|-----------|-------|
+| BUY_THRESHOLD | 0.40 |
+| SELL_THRESHOLD | 0.40 |
+| STOP_LOSS_ATR_MULTIPLIER | 1.5 |
+| TAKE_PROFIT_ATR_MULTIPLIER | 3.0 |
+| MAX_DAILY_TRADES | 20 |
 
 ---
 
 ## Próximos Tests Recomendados
 
-- [ ] Probar nueva configuración en simulador
-- [ ] Período más largo (60-90 días)
-- [ ] Entrenar modelo con más datos para mejorar SELL precision
+- [ ] Reentrenar modelo con más datos para mejorar SELL precision
+- [ ] Probar período más largo (60-90 días)
+- [ ] Probar otras combinaciones de pares
 
 ---
 
