@@ -21,6 +21,22 @@ def _normalize_pair(pair: str, base_currency: str = "EUR") -> str:
     return pair
 
 
+def _normalize_timeframe(tf: str) -> str:
+    """Normaliza el timeframe al formato que espera Binance.
+    
+    15min -> 15m
+    1hour -> 1h
+    4h -> 4h (sin cambios)
+    """
+    tf = tf.lower().strip()
+    mapping = {
+        "1min": "1m", "3min": "3m", "5min": "5m", "15min": "15m", "30min": "30m",
+        "1hour": "1h", "2hours": "2h", "4hours": "4h", "6hours": "6h", "8hours": "8h", "12hours": "12h",
+        "1day": "1d", "3days": "3d", "1week": "1w", "1month": "1M",
+    }
+    return mapping.get(tf, tf)
+
+
 def _get_exchange_symbol(pair: str) -> str:
     """Convierte par al formato de símbolo del exchange (sin barra).
     
@@ -44,7 +60,7 @@ class TradingConfig:
     base_currency: str = field(default_factory=lambda: os.getenv("BASE_CURRENCY", "EUR"))
     demo_initial_balance: float = field(default_factory=lambda: float(os.getenv("DEMO_INITIAL_BALANCE", "1000.0")))
     analysis_interval: int = field(default_factory=lambda: int(os.getenv("ANALYSIS_INTERVAL_SECONDS", "600")))
-    timeframe: str = field(default_factory=lambda: os.getenv("MODEL_TIMEFRAME", "15m"))
+    timeframe: str = field(default_factory=lambda: _normalize_timeframe(os.getenv("MODEL_TIMEFRAME", "15m")))
     candles_required: int = field(default_factory=lambda: int(os.getenv("MODEL_CANDLES_REQUIRED", "200")))
 
     def is_demo(self) -> bool:
