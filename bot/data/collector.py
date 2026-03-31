@@ -228,10 +228,10 @@ class DataCollector:
         """Obtiene precio desde CoinGecko API como fallback."""
         COINGECKO_IDS = {
             "BTC/EUR": "bitcoin",
-            "ETH/EUR": "ethereum",
-            "SOL/EUR": "solana",
             "BTC/USDT": "bitcoin",
+            "ETH/EUR": "ethereum",
             "ETH/USDT": "ethereum",
+            "SOL/EUR": "solana",
             "SOL/USDT": "solana",
         }
         try:
