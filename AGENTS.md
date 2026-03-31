@@ -2,8 +2,9 @@
 
 ## Project Overview
 
-This is a Python-based cryptocurrency trading bot using LightGBM ML model, FastAPI backend, and Vue.js frontend. It connects to Coinbase Advanced Trade API for live trading.
+This is a Python-based cryptocurrency trading bot using LightGBM ML model, FastAPI backend, and Vue.js frontend. It connects to Binance API for live trading.
 
+- **Objective**: 2-4% monthly return (realistic target)
 - **Python**: 3.11 (via Docker)
 - **Main Dependencies**: ccxt, pandas, lightgbm, fastapi, sqlalchemy, redis, loguru
 - **Database**: SQLite + Redis

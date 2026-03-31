@@ -92,10 +92,19 @@ class ModelPredictor:
             
             logger.debug(f"Raw predictions: best_class={best_class}, confidence={confidence}")
 
+            # Apply threshold - pero permitir signal si es la mejor probabilidad relativa
             if signal == "BUY" and confidence < config.risk.buy_threshold:
-                signal = "HOLD"
+                # Si BUY tiene mayor probabilidad que SELL, ejecutar aunque confianza baja
+                if prob_dict.get("BUY", 0) > prob_dict.get("SELL", 0):
+                    logger.info(f"⚡ BUY信号 con baja confianza pero mejor que SELL: {prob_dict}")
+                else:
+                    signal = "HOLD"
             elif signal == "SELL" and confidence < config.risk.sell_threshold:
-                signal = "HOLD"
+                # Si SELL tiene mayor probabilidad que BUY, ejecutar aunque confianza baja
+                if prob_dict.get("SELL", 0) > prob_dict.get("BUY", 0):
+                    logger.info(f"⚡ SELL信号 con baja confianza pero mejor que BUY: {prob_dict}")
+                else:
+                    signal = "HOLD"
 
             return {
                 "signal": signal,
