@@ -6,6 +6,29 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _normalize_pair(pair: str, base_currency: str = "EUR") -> str:
+    """Convierte par al formato que espera ccxt.
+    
+    BTC/EUR -> BTC/EUR (ccxt maneja este formato)
+    BTCEUR -> BTC/EUR (convierte formato sin barra)
+    """
+    if "/" in pair:
+        return pair
+    if len(pair) == 6 and pair.isupper():
+        base = pair[:3]
+        quote = pair[3:]
+        return f"{base}/{quote}"
+    return pair
+
+
+def _get_exchange_symbol(pair: str) -> str:
+    """Convierte par al formato de símbolo del exchange (sin barra).
+    
+    BTC/EUR -> BTCEUR
+    """
+    return pair.replace("/", "")
+
+
 @dataclass
 class ExchangeConfig:
     name: str = field(default_factory=lambda: os.getenv("EXCHANGE", "binance"))
@@ -26,6 +49,13 @@ class TradingConfig:
 
     def is_demo(self) -> bool:
         return self.mode == "demo"
+    
+    def get_symbol(self, pair: str) -> str:
+        """Retorna el símbolo sin barra para APIs de exchange.
+        
+        BTC/EUR -> BTCEUR
+        """
+        return _get_exchange_symbol(pair)
 
 
 @dataclass

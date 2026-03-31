@@ -26,7 +26,8 @@ async def fetch_and_store_historical(pair: str, days: int = 90) -> int:
     all_candles = []
     limit = 300
 
-    logger.info(f"Descargando histórico {pair} ({days} días, {timeframe})...")
+    symbol = config.trading.get_symbol(pair)
+    logger.info(f"Descargando histórico {pair} -> {symbol} ({days} días, {timeframe})...")
     try:
         await exchange.load_markets()
     except Exception as e:
@@ -37,7 +38,7 @@ async def fetch_and_store_historical(pair: str, days: int = 90) -> int:
     try:
         while True:
             try:
-                ohlcv = await exchange.fetch_ohlcv(pair, timeframe=timeframe, since=since, limit=limit)
+                ohlcv = await exchange.fetch_ohlcv(symbol, timeframe=timeframe, since=since, limit=limit)
             except Exception as e:
                 logger.warning(f"Error descargando {pair}, continuando: {e}")
                 break

@@ -66,8 +66,9 @@ class DataCollector:
                 return False
             
             try:
+                symbol = config.trading.get_symbol(config.trading.pairs[0])
                 ticker = await asyncio.wait_for(
-                    self.exchange.fetch_ticker(config.trading.pairs[0]),
+                    self.exchange.fetch_ticker(symbol),
                     timeout=5.0
                 )
                 return False
@@ -102,7 +103,8 @@ class DataCollector:
             try:
                 for pair in config.trading.pairs:
                     try:
-                        ticker = await self.exchange.fetch_ticker(pair)
+                        symbol = config.trading.get_symbol(pair)
+                        ticker = await self.exchange.fetch_ticker(symbol)
                         price = ticker.get("last")
                         if price:
                             await self.redis.set(
@@ -149,8 +151,9 @@ class DataCollector:
             await asyncio.sleep(interval_seconds)
 
     async def _fetch_and_store_ohlcv(self, pair: str) -> None:
+        symbol = config.trading.get_symbol(pair)
         ohlcv = await self.exchange.fetch_ohlcv(
-            pair, timeframe=config.trading.timeframe, limit=10
+            symbol, timeframe=config.trading.timeframe, limit=10
         )
         if not ohlcv:
             return
