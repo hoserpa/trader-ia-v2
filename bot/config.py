@@ -20,8 +20,8 @@ class TradingConfig:
     pairs: list = field(default_factory=lambda: os.getenv("TRADING_PAIRS", "BTC/EUR,ETH/EUR,SOL/EUR").split(","))
     base_currency: str = field(default_factory=lambda: os.getenv("BASE_CURRENCY", "EUR"))
     demo_initial_balance: float = field(default_factory=lambda: float(os.getenv("DEMO_INITIAL_BALANCE", "1000.0")))
-    analysis_interval: int = field(default_factory=lambda: int(os.getenv("ANALYSIS_INTERVAL_SECONDS", "3600")))
-    timeframe: str = field(default_factory=lambda: os.getenv("MODEL_TIMEFRAME", "1h"))
+    analysis_interval: int = field(default_factory=lambda: int(os.getenv("ANALYSIS_INTERVAL_SECONDS", "600")))
+    timeframe: str = field(default_factory=lambda: os.getenv("MODEL_TIMEFRAME", "15m"))
     candles_required: int = field(default_factory=lambda: int(os.getenv("MODEL_CANDLES_REQUIRED", "200")))
 
     def is_demo(self) -> bool:
@@ -30,16 +30,16 @@ class TradingConfig:
 
 @dataclass
 class RiskConfig:
-    max_risk_per_trade_pct: float = field(default_factory=lambda: float(os.getenv("MAX_RISK_PER_TRADE_PCT", "0.02")))
+    max_risk_per_trade_pct: float = field(default_factory=lambda: float(os.getenv("MAX_RISK_PER_TRADE_PCT", "0.05")))
     max_open_positions: int = field(default_factory=lambda: int(os.getenv("MAX_OPEN_POSITIONS", "3")))
     max_portfolio_in_crypto_pct: float = field(default_factory=lambda: float(os.getenv("MAX_PORTFOLIO_IN_CRYPTO_PCT", "0.60")))
-    buy_threshold: float = field(default_factory=lambda: float(os.getenv("BUY_THRESHOLD", "0.25")))
-    sell_threshold: float = field(default_factory=lambda: float(os.getenv("SELL_THRESHOLD", "0.25")))
+    buy_threshold: float = field(default_factory=lambda: float(os.getenv("BUY_THRESHOLD", "0.70")))
+    sell_threshold: float = field(default_factory=lambda: float(os.getenv("SELL_THRESHOLD", "0.70")))
     stop_loss_atr_multiplier: float = field(default_factory=lambda: float(os.getenv("STOP_LOSS_ATR_MULTIPLIER", "1.5")))
     take_profit_atr_multiplier: float = field(default_factory=lambda: float(os.getenv("TAKE_PROFIT_ATR_MULTIPLIER", "3.0")))
     max_daily_trades: int = field(default_factory=lambda: int(os.getenv("MAX_DAILY_TRADES", "20")))
     high_volatility_atr_threshold: float = field(default_factory=lambda: float(os.getenv("HIGH_VOLATILITY_ATR_THRESHOLD", "0.05")))
-    min_confidence_threshold: float = field(default_factory=lambda: float(os.getenv("MIN_CONFIDENCE_THRESHOLD", "0.0")))
+    min_confidence_threshold: float = field(default_factory=lambda: float(os.getenv("MIN_CONFIDENCE_THRESHOLD", "0.70")))
     min_trade_eur: float = 10.0
 
 

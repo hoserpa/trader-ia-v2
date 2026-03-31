@@ -77,7 +77,7 @@ async def download_pair_data(
 async def main():
     parser = argparse.ArgumentParser(description="Descarga datos históricos del exchange")
     parser.add_argument("--pairs", type=str, default="BTC/EUR,ETH/EUR,SOL/EUR", help="Pares separados por coma")
-    parser.add_argument("--timeframe", type=str, default="5m", help="Timeframe (1m, 5m, 15m, 1h, 4h, 1d)")
+    parser.add_argument("--timeframe", type=str, default="15m", help="Timeframe (1m, 5m, 15m, 1h, 4h, 1d)")
     parser.add_argument("--days", type=int, default=365, help="Días hacia atrás")
     parser.add_argument("--output", type=str, default="output/data", help="Directorio de salida")
     parser.add_argument("--exchange", type=str, default="coinbase", help="Exchange (binance, coinbase, kraken, etc)")

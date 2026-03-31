@@ -18,7 +18,7 @@ from indicators.features import FeatureBuilder
 
 
 LABEL_LOOKAHEAD = 3
-LABEL_THRESHOLD = 0.015
+LABEL_THRESHOLD = 0.008
 
 
 def load_data(data_dir: Path) -> dict[str, pd.DataFrame]:

@@ -6,6 +6,7 @@ from typing import Optional
 import ccxt.async_support as ccxt
 import pandas as pd
 import redis.asyncio as aioredis
+import httpx
 from loguru import logger
 from config import config
 from database.crud import upsert_candles
@@ -204,9 +205,49 @@ class DataCollector:
         return df
 
     async def get_current_price(self, pair: str) -> Optional[float]:
-        """Obtiene el precio actual desde Redis."""
+        """Obtiene el precio actual desde Redis o fallback."""
         val = await self.redis.get(self.REDIS_PRICE_KEY.format(pair=pair))
-        return float(val) if val else None
+        if val:
+            return float(val)
+        
+        price = await self._fetch_price_coingecko(pair)
+        if price:
+            await self.redis.set(
+                self.REDIS_PRICE_KEY.format(pair=pair),
+                str(price),
+                ex=60,
+            )
+            return price
+        
+        return None
+
+    async def _fetch_price_coingecko(self, pair: str) -> Optional[float]:
+        """Obtiene precio desde CoinGecko API como fallback."""
+        COINGECKO_IDS = {
+            "BTC/EUR": "bitcoin",
+            "ETH/EUR": "ethereum",
+            "SOL/EUR": "solana",
+            "BTC/USDT": "bitcoin",
+            "ETH/USDT": "ethereum",
+            "SOL/USDT": "solana",
+        }
+        try:
+            cg_id = COINGECKO_IDS.get(pair)
+            if not cg_id:
+                symbol = pair.replace("/EUR", "").replace("/USDT", "").lower()
+                cg_id = symbol
+            
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(
+                    "https://api.coingecko.com/api/v3/simple/price",
+                    params={"ids": cg_id, "vs_currencies": "eur"}
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    return data.get(cg_id, {}).get("eur")
+        except Exception as e:
+            logger.debug(f"CoinGecko fallback error for {pair}: {e}")
+        return None
 
     @staticmethod
     def _timeframe_to_seconds(tf: str) -> int:
