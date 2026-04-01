@@ -64,6 +64,7 @@ class DemoTrader:
             "amount_eur": amount_eur,
             "amount_crypto": amount_crypto,
             "price": current_price,
+            "entry_price": current_price,
             "fee_eur": fee,
             "stop_loss": stop_loss,
             "take_profit": take_profit,
@@ -102,6 +103,7 @@ class DemoTrader:
 
         emoji = "🔴" if pnl_eur < 0 else "💚"
         logger.info(f"{emoji} [DEMO] VENTA {pair}: {amount_crypto:.8f} @ {current_price:.2f}€ | PnL={pnl_eur:+.2f}€ | razón={reason}")
+        entry_time = position.entry_timestamp.replace(tzinfo=None) if position.entry_timestamp else None
         return {
             "trade_id": trade.id,
             "pair": pair,
@@ -109,6 +111,8 @@ class DemoTrader:
             "amount_crypto": amount_crypto,
             "amount_eur": gross_eur,
             "price": current_price,
+            "entry_price": position.entry_price,
+            "entry_timestamp": position.entry_timestamp.isoformat() if position.entry_timestamp else None,
             "fee_eur": fee,
             "pnl_eur": pnl_eur,
             "pnl_pct": pnl_eur / position.amount_eur_invested * 100,

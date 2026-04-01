@@ -234,7 +234,7 @@ class TradingEngine:
                     if trade:
                         executed = True
                         await self.redis.publish("bot:live_updates", json.dumps({"type": "trade_executed", "data": trade}))
-                        await self.telegram.notify_position_closed(trade, trade.get("pnl_eur", 0))
+                        await self.telegram.notify_position_closed(trade, trade.get("pnl_eur", 0), open_position)
             else:
                 portfolio_state = self.portfolio.get()
                 prices = {p: await self.collector.get_current_price(p) or 0 for p in config.trading.pairs}
@@ -249,7 +249,7 @@ class TradingEngine:
                     if trade:
                         executed = True
                         await self.redis.publish("bot:live_updates", json.dumps({"type": "trade_executed", "data": trade}))
-                        await self.telegram.notify_trade(trade)
+                        await self.telegram.notify_trade(trade, signal)
                 else:
                     rejection_reason = reason
                     if signal["signal"] != "HOLD":

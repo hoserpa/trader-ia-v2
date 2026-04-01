@@ -77,7 +77,20 @@ class RealTrader:
                     db.close()
 
                 logger.info(f"🟢 [REAL] COMPRA {pair}: {filled_amount:.8f} @ {filled_price:.2f}€")
-                return {"trade_id": trade.id, "position_id": position.id, "pair": pair, "price": filled_price, "mode": "real"}
+                return {
+                    "trade_id": trade.id,
+                    "position_id": position.id,
+                    "pair": pair,
+                    "side": "buy",
+                    "price": filled_price,
+                    "entry_price": filled_price,
+                    "amount_eur": amount_eur,
+                    "amount_crypto": filled_amount,
+                    "stop_loss": stop_loss,
+                    "take_profit": take_profit,
+                    "fee_eur": fee_eur,
+                    "mode": "real",
+                }
 
             except ccxt.InsufficientFunds as e:
                 logger.error(f"Fondos insuficientes para compra {pair}: {e}")
@@ -121,7 +134,21 @@ class RealTrader:
                     db.close()
 
                 logger.info(f"{'💚' if pnl_eur >= 0 else '🔴'} [REAL] VENTA {pair} @ {filled_price:.2f}€ | PnL={pnl_eur:+.2f}€ | {reason}")
-                return {"trade_id": trade.id, "pair": pair, "pnl_eur": pnl_eur, "mode": "real"}
+                return {
+                    "trade_id": trade.id,
+                    "pair": pair,
+                    "side": "sell",
+                    "amount_crypto": position.amount_crypto,
+                    "amount_eur": gross_eur,
+                    "price": filled_price,
+                    "entry_price": position.entry_price,
+                    "entry_timestamp": position.entry_timestamp.isoformat() if position.entry_timestamp else None,
+                    "fee_eur": fee_eur,
+                    "pnl_eur": pnl_eur,
+                    "pnl_pct": pnl_eur / position.amount_eur_invested * 100,
+                    "close_reason": reason,
+                    "mode": "real",
+                }
             except Exception as e:
                 self._consecutive_errors += 1
                 logger.error(f"Error en venta {pair} (intento {attempt+1}): {e}")

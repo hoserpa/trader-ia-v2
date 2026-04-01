@@ -1,7 +1,25 @@
 """Notificaciones via Telegram Bot API."""
+from datetime import datetime
 import httpx
 from loguru import logger
 from config import config
+
+
+def _format_duration(entry_ts: str) -> str:
+    """Calcula duración desde entrada hasta ahora."""
+    if not entry_ts:
+        return "—"
+    try:
+        entry = datetime.fromisoformat(entry_ts.replace("Z", "+00:00"))
+        now = datetime.utcnow()
+        delta = now - entry.replace(tzinfo=None)
+        hours, remainder = divmod(int(delta.total_seconds()), 3600)
+        minutes, _ = divmod(remainder, 60)
+        if hours > 0:
+            return f"{hours}h {minutes}m"
+        return f"{minutes} min"
+    except Exception:
+        return "—"
 
 
 class TelegramNotifier:
@@ -52,35 +70,42 @@ class TelegramNotifier:
         text = "🛑 *Bot detenido*"
         await self._send(text)
 
-    async def notify_trade(self, trade: dict) -> None:
+    async def notify_trade(self, trade: dict, signal: dict) -> None:
         mode_label = "DEMO" if trade.get("mode") == "demo" else "⚠️ REAL"
-        emoji = "🟢"
         text = (
-            f"{emoji} *COMPRA* `[{mode_label}]`\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"📌 Par: `{trade['pair']}`\n"
-            f"💶 Precio: `{trade['price']:.2f}€`\n"
-            f"💰 Inversión: `{trade['amount_eur']:.2f}€`\n"
-            f"📊 Cantidad: `{trade['amount_crypto']:.8f}`\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"🛡️ Stop-loss: `{trade.get('stop_loss_price', 0):.2f}€`\n"
-            f"🎯 Take-profit: `{trade.get('take_profit_price', 0):.2f}€`"
+            f"🟢 *NUEVA COMPRA* `[{mode_label}]`\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"📌 *{trade['pair']}*\n"
+            f"💰 Invertido: `{trade.get('amount_eur', 0):.2f}€`\n"
+            f"📊 Recibido: `{trade['amount_crypto']:.8f}`\n"
+            f"💵 Precio entrada: `{trade['price']:.2f}€`\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🛡️ SL: `{trade.get('stop_loss', 0):.2f}€` | 🎯 TP: `{trade.get('take_profit', 0):.2f}€`\n"
+            f"📈 Señal: *{signal.get('signal', 'HOLD')}* `{signal.get('confidence', 0):.0%}` | B:{signal.get('probabilities', {}).get('BUY', 0):.0%} S:{signal.get('probabilities', {}).get('SELL', 0):.0%}"
         )
         await self._send(text)
 
-    async def notify_position_closed(self, trade: dict, pnl_eur: float) -> None:
+    async def notify_position_closed(self, trade: dict, pnl_eur: float, position: object) -> None:
         emoji = "💚" if pnl_eur >= 0 else "🔴"
         sign = "+" if pnl_eur >= 0 else ""
         reason = trade.get("close_reason", "signal")
-        reason_emoji = "📊" if reason == "signal" else ("🛡️" if "stop" in reason.lower() else "🎯")
+        entry_price = trade.get("entry_price", 0)
+        duration = _format_duration(trade.get("entry_timestamp", ""))
+        
+        reason_icon = "📊"
+        if "stop" in reason.lower():
+            reason_icon = "🛡️"
+        elif "take" in reason.lower():
+            reason_icon = "🎯"
         
         text = (
             f"{emoji} *VENTA* `[{trade.get('mode', 'demo').upper()}]`\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"📌 Par: `{trade['pair']}`\n"
-            f"💶 Precio: `{trade['price']:.2f}€`\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"📌 *{trade['pair']}* a `{trade['price']:.2f}€`\n"
+            f"(entró a `{entry_price:.2f}€` | ⏱️ {duration})\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
             f"💰 PnL: `{sign}{pnl_eur:.2f}€ ({sign}{trade.get('pnl_pct', 0):.2f}%)`\n"
-            f"{reason_emoji} Razón: `{reason}`"
+            f"{reason_icon} Razón: `{reason}`"
         )
         await self._send(text)
 
