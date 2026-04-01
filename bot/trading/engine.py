@@ -137,6 +137,9 @@ class TradingEngine:
                     )
             else:
                 self._consecutive_errors = 0
+                if self._status == "error":
+                    self._status = "running"
+                    logger.info("✅ Bot recuperado de error")
 
             await self._save_portfolio_snapshot()
             await self._publish_status()

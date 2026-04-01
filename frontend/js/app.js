@@ -27,8 +27,8 @@ createApp({
         if (msg.type === 'portfolio_update') portfolio.value = msg.data;
         else if (msg.type === 'bot_status') botStatus.value = msg.data;
         else if (msg.type === 'price_update') prices.value[msg.data.pair] = msg.data.price;
-        else if (msg.type === 'signal') updateSignal(msg.data);
-        else if (msg.type === 'trade_executed') { trades.value.unshift(msg.data); loadTrades(); }
+        else if (msg.type === 'signal') { updateSignal(msg.data); if (botStatus.value.status === 'error') botStatus.value.status = 'running'; }
+        else if (msg.type === 'trade_executed') { trades.value.unshift(msg.data); loadTrades(); if (botStatus.value.status === 'error') botStatus.value.status = 'running'; }
       };
       ws.onclose = () => {
         wsReconnectTimer = setTimeout(connectWS, 5000);
