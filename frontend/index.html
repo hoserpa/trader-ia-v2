@@ -61,6 +61,7 @@
       <h2>Evolución del portfolio</h2>
       <div class="period-selector">
         <button v-for="d in [7,30,90]" :key="d" @click="loadPortfolioHistory(d)" :class="{active: historyDays===d}">{{ d }}d</button>
+        <button @click="resetPortfolio" class="reset-btn" title="Resetear historial">↺</button>
       </div>
     </div>
     <canvas id="portfolioChart" height="80"></canvas>

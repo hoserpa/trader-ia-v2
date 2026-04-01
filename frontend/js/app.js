@@ -73,6 +73,19 @@ createApp({
       renderPortfolioChart(res.data);
     };
 
+    const resetPortfolio = async () => {
+      if (!confirm('¿Resetear historial de portfolio? Esto borrará trades, posiciones cerradas y el gráfico. El balance se mantendrá.')) return;
+      try {
+        const res = await api.post('/portfolio/reset');
+        if (res.data.error) {
+          alert(res.data.error);
+          return;
+        }
+        await loadPortfolioHistory(historyDays.value);
+        alert('Historial reseteado: ' + res.data.snapshots_deleted + ' snapshots, ' + res.data.trades_deleted + ' trades');
+      } catch (e) { alert('Error al resetear: ' + e.message); }
+    };
+
     const dedupSignals = (signals) => {
       const map = {};
       signals.forEach(s => { if (!map[s.pair] || s.timestamp > map[s.pair].timestamp) map[s.pair] = s; });
@@ -147,7 +160,7 @@ createApp({
       portfolio, botStatus, botConfig, prices, trades, systemLogs,
       latestSignals, stats, historyDays, logContainer, openPositions,
       formatPrice, formatDate, modeClass, statusClass, statusTextClass, signalClass,
-      loadPortfolioHistory,
+      loadPortfolioHistory, resetPortfolio,
     };
   }
 }).mount('#app');

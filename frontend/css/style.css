@@ -39,6 +39,8 @@ h2 { font-size: 1rem; font-weight: 600; margin-bottom: 12px; width: 100%; }
 .period-selector { display: flex; gap: 4px; }
 .period-selector button { background: #2d333b; border: none; color: #9ca3af; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 0.8rem; -webkit-tap-highlight-color: transparent; }
 .period-selector button.active { background: #4f8ef7; color: white; }
+.period-selector .reset-btn { background: #3d2a2a; color: #f87171; font-size: 1rem; padding: 8px 12px; }
+.period-selector .reset-btn:hover { background: #5a3a3a; }
 
 .signals-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
 .signal-card { background: #2d333b; padding: 14px; border-radius: 10px; }

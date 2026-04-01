@@ -218,3 +218,17 @@ def get_logs(db: Session, level: Optional[str] = None, limit: int = 100) -> list
     if level:
         q = q.filter_by(level=level.upper())
     return q.limit(limit).all()
+
+
+def reset_portfolio_data(db: Session) -> dict:
+    """Resetea el historial del portfolio (snapshots, trades, posiciones).
+    Mantiene posiciones abiertas y el balance en Redis."""
+    deleted_snapshots = db.query(PortfolioSnapshot).delete()
+    deleted_trades = db.query(Trade).delete()
+    deleted_positions = db.query(Position).filter_by(status="closed").delete()
+    db.commit()
+    return {
+        "snapshots_deleted": deleted_snapshots,
+        "trades_deleted": deleted_trades,
+        "closed_positions_deleted": deleted_positions,
+    }
