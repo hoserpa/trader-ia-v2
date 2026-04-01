@@ -220,42 +220,38 @@ class TradingEngine:
         db = SessionLocal()
         try:
             open_position = get_open_position_by_pair(db, pair)
-        finally:
-            db.close()
 
-        executed = False
-        rejection_reason = None
+            executed = False
+            rejection_reason = None
 
-        if open_position:
-            should_sell, sell_reason = self.risk_manager.can_sell(pair, open_position, signal, current_price)
-            if should_sell:
-                trade = await self.trader.execute_sell(pair, open_position, current_price, sell_reason)
-                if trade:
-                    executed = True
-                    await self.redis.publish("bot:live_updates", json.dumps({"type": "trade_executed", "data": trade}))
-                    await self.telegram.notify_position_closed(trade, trade.get("pnl_eur", 0))
-        else:
-            portfolio_state = self.portfolio.get()
-            prices = {p: await self.collector.get_current_price(p) or 0 for p in config.trading.pairs}
-            portfolio_state = await self.portfolio.update_valuations(prices)
-
-            can_buy, reason, amount_eur = self.risk_manager.can_buy(
-                pair, signal, portfolio_state, current_price, atr
-            )
-            if can_buy:
-                trade = await self.trader.execute_buy(pair, amount_eur, current_price, atr)
-
-                if trade:
-                    executed = True
-                    await self.redis.publish("bot:live_updates", json.dumps({"type": "trade_executed", "data": trade}))
-                    await self.telegram.notify_trade(trade)
+            if open_position:
+                should_sell, sell_reason = self.risk_manager.can_sell(pair, open_position, signal, current_price)
+                if should_sell:
+                    trade = await self.trader.execute_sell(pair, open_position, current_price, sell_reason)
+                    if trade:
+                        executed = True
+                        await self.redis.publish("bot:live_updates", json.dumps({"type": "trade_executed", "data": trade}))
+                        await self.telegram.notify_position_closed(trade, trade.get("pnl_eur", 0))
             else:
-                rejection_reason = reason
-                if signal["signal"] != "HOLD":
-                    logger.debug(f"  ↳ Señal {signal['signal']} rechazada: {reason}")
+                portfolio_state = self.portfolio.get()
+                prices = {p: await self.collector.get_current_price(p) or 0 for p in config.trading.pairs}
+                portfolio_state = await self.portfolio.update_valuations(prices)
 
-        db = SessionLocal()
-        try:
+                can_buy, reason, amount_eur = self.risk_manager.can_buy(
+                    pair, signal, portfolio_state, current_price, atr
+                )
+                if can_buy:
+                    trade = await self.trader.execute_buy(pair, amount_eur, current_price, atr)
+
+                    if trade:
+                        executed = True
+                        await self.redis.publish("bot:live_updates", json.dumps({"type": "trade_executed", "data": trade}))
+                        await self.telegram.notify_trade(trade)
+                else:
+                    rejection_reason = reason
+                    if signal["signal"] != "HOLD":
+                        logger.debug(f"  ↳ Señal {signal['signal']} rechazada: {reason}")
+
             save_decision(db, {
                 "pair": pair,
                 "signal": signal["signal"],
