@@ -76,20 +76,32 @@ class DemoTrader:
 
     async def execute_sell(self, pair: str, position, current_price: float, reason: str) -> dict:
         """Simula una venta/cierre de posición."""
-        amount_crypto = position.amount_crypto
+        if isinstance(position, dict):
+            amount_crypto = position["amount_crypto"]
+            amount_eur_invested = position["amount_eur_invested"]
+            entry_price = position["entry_price"]
+            entry_timestamp = position.get("entry_timestamp")
+            position_id = position["id"]
+        else:
+            amount_crypto = position.amount_crypto
+            amount_eur_invested = position.amount_eur_invested
+            entry_price = position.entry_price
+            entry_timestamp = position.entry_timestamp
+            position_id = position.id
+        
         gross_eur = amount_crypto * current_price
         fee = gross_eur * config.exchange.taker_fee
         net_eur = gross_eur - fee
-        pnl_eur = net_eur - position.amount_eur_invested
+        pnl_eur = net_eur - amount_eur_invested
 
         await self.portfolio.update_balance(net_eur)
         await self.portfolio.remove_position(pair)
 
         db = SessionLocal()
         try:
-            closed = crud.close_position(db, position.id, current_price, reason)
+            closed = crud.close_position(db, position_id, current_price, reason)
             trade = crud.create_trade(db, {
-                "position_id": position.id,
+                "position_id": position_id,
                 "pair": pair,
                 "side": "sell",
                 "amount_crypto": amount_crypto,
@@ -103,7 +115,6 @@ class DemoTrader:
 
         emoji = "🔴" if pnl_eur < 0 else "💚"
         logger.info(f"{emoji} [DEMO] VENTA {pair}: {amount_crypto:.8f} @ {current_price:.2f}€ | PnL={pnl_eur:+.2f}€ | razón={reason}")
-        entry_time = position.entry_timestamp.replace(tzinfo=None) if position.entry_timestamp else None
         return {
             "trade_id": trade.id,
             "pair": pair,
@@ -111,11 +122,11 @@ class DemoTrader:
             "amount_crypto": amount_crypto,
             "amount_eur": gross_eur,
             "price": current_price,
-            "entry_price": position.entry_price,
-            "entry_timestamp": position.entry_timestamp.isoformat() if position.entry_timestamp else None,
+            "entry_price": entry_price,
+            "entry_timestamp": entry_timestamp,
             "fee_eur": fee,
             "pnl_eur": pnl_eur,
-            "pnl_pct": pnl_eur / position.amount_eur_invested * 100,
+            "pnl_pct": pnl_eur / amount_eur_invested * 100,
             "close_reason": reason,
             "timestamp": datetime.utcnow().isoformat(),
             "mode": "demo",

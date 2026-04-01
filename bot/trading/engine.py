@@ -16,7 +16,7 @@ from trading.demo_trader import DemoTrader
 from trading.real_trader import RealTrader
 from notifications.telegram import TelegramNotifier
 from database.crud import (
-    save_decision, save_portfolio_snapshot, get_open_position_by_pair, get_open_positions
+    save_decision, save_portfolio_snapshot, get_open_position_by_pair, get_open_position_by_pair_dict, get_open_positions
 )
 from database.init_db import SessionLocal
 
@@ -223,18 +223,19 @@ class TradingEngine:
         db = SessionLocal()
         try:
             open_position = get_open_position_by_pair(db, pair)
+            open_position_dict = get_open_position_by_pair_dict(db, pair)
 
             executed = False
             rejection_reason = None
 
             if open_position:
-                should_sell, sell_reason = self.risk_manager.can_sell(pair, open_position, signal, current_price)
+                should_sell, sell_reason = self.risk_manager.can_sell(pair, open_position_dict, signal, current_price)
                 if should_sell:
                     trade = await self.trader.execute_sell(pair, open_position, current_price, sell_reason)
                     if trade:
                         executed = True
                         await self.redis.publish("bot:live_updates", json.dumps({"type": "trade_executed", "data": trade}))
-                        await self.telegram.notify_position_closed(trade, trade.get("pnl_eur", 0), open_position)
+                        await self.telegram.notify_position_closed(trade, trade.get("pnl_eur", 0), open_position_dict)
             else:
                 portfolio_state = self.portfolio.get()
                 prices = {p: await self.collector.get_current_price(p) or 0 for p in config.trading.pairs}

@@ -73,20 +73,20 @@ class RiskManager:
     def can_sell(
         self,
         pair: str,
-        position,
+        position: dict,
         signal: dict,
         current_price: float,
     ) -> tuple[bool, str]:
         """Evalúa si se debe cerrar una posición.
         Retorna: (debe_vender, razón)
         """
-        if current_price <= position.stop_loss_price:
-            loss_pct = (current_price - position.entry_price) / position.entry_price * 100
-            return True, f"stop_loss (precio={current_price:.2f} <= SL={position.stop_loss_price:.2f}, pérdida={loss_pct:.2f}%)"
+        if current_price <= position["stop_loss_price"]:
+            loss_pct = (current_price - position["entry_price"]) / position["entry_price"] * 100
+            return True, f"stop_loss (precio={current_price:.2f} <= SL={position['stop_loss_price']:.2f}, pérdida={loss_pct:.2f}%)"
 
-        if current_price >= position.take_profit_price:
-            gain_pct = (current_price - position.entry_price) / position.entry_price * 100
-            return True, f"take_profit (precio={current_price:.2f} >= TP={position.take_profit_price:.2f}, ganancia={gain_pct:.2f}%)"
+        if current_price >= position["take_profit_price"]:
+            gain_pct = (current_price - position["entry_price"]) / position["entry_price"] * 100
+            return True, f"take_profit (precio={current_price:.2f} >= TP={position['take_profit_price']:.2f}, ganancia={gain_pct:.2f}%)"
 
         if signal.get("signal") == "SELL" and signal.get("confidence", 0) >= config.risk.min_confidence_threshold:
             return True, f"signal (SELL con confianza={signal['confidence']:.2%})"

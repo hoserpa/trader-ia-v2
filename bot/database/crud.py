@@ -78,6 +78,22 @@ def get_open_position_by_pair(db: Session, pair: str) -> Optional[Position]:
     return db.query(Position).filter_by(pair=pair, status="open").first()
 
 
+def get_open_position_by_pair_dict(db: Session, pair: str) -> Optional[dict]:
+    pos = db.query(Position).filter_by(pair=pair, status="open").first()
+    if pos:
+        return {
+            "id": pos.id,
+            "pair": pos.pair,
+            "amount_crypto": pos.amount_crypto,
+            "entry_price": pos.entry_price,
+            "stop_loss_price": pos.stop_loss_price,
+            "take_profit_price": pos.take_profit_price,
+            "amount_eur_invested": pos.amount_eur_invested,
+            "entry_timestamp": pos.entry_timestamp.isoformat() if pos.entry_timestamp else None,
+        }
+    return None
+
+
 def close_position(db: Session, position_id: int, close_price: float, reason: str) -> Position:
     pos = db.query(Position).get(position_id)
     pos.status = "closed"

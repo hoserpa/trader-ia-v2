@@ -85,12 +85,12 @@ class TelegramNotifier:
         )
         await self._send(text)
 
-    async def notify_position_closed(self, trade: dict, pnl_eur: float, position: object) -> None:
+    async def notify_position_closed(self, trade: dict, pnl_eur: float, position: dict) -> None:
         emoji = "💚" if pnl_eur >= 0 else "🔴"
         sign = "+" if pnl_eur >= 0 else ""
         reason = trade.get("close_reason", "signal")
         entry_price = trade.get("entry_price", 0)
-        duration = _format_duration(trade.get("entry_timestamp", ""))
+        duration = _format_duration(position.get("entry_timestamp", "") if position else trade.get("entry_timestamp", ""))
         
         reason_icon = "📊"
         if "stop" in reason.lower():

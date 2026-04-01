@@ -107,23 +107,37 @@ class RealTrader:
 
     async def execute_sell(self, pair: str, position, current_price: float, reason: str) -> dict:
         self._check_circuit_breaker()
+        
+        if isinstance(position, dict):
+            amount_crypto = position["amount_crypto"]
+            amount_eur_invested = position["amount_eur_invested"]
+            entry_price = position["entry_price"]
+            entry_timestamp = position.get("entry_timestamp")
+            position_id = position["id"]
+        else:
+            amount_crypto = position.amount_crypto
+            amount_eur_invested = position.amount_eur_invested
+            entry_price = position.entry_price
+            entry_timestamp = position.entry_timestamp
+            position_id = position.id
+        
         for attempt in range(self.MAX_RETRIES):
             try:
-                order = await self.exchange.create_market_sell_order(pair, position.amount_crypto)
+                order = await self.exchange.create_market_sell_order(pair, amount_crypto)
                 self._consecutive_errors = 0
                 filled_price = order.get("average", current_price)
-                gross_eur = position.amount_crypto * filled_price
+                gross_eur = amount_crypto * filled_price
                 fee_eur = order.get("fee", {}).get("cost", gross_eur * config.exchange.taker_fee)
-                pnl_eur = (gross_eur - fee_eur) - position.amount_eur_invested
+                pnl_eur = (gross_eur - fee_eur) - amount_eur_invested
 
                 db = SessionLocal()
                 try:
-                    crud.close_position(db, position.id, filled_price, reason)
+                    crud.close_position(db, position_id, filled_price, reason)
                     trade = crud.create_trade(db, {
-                        "position_id": position.id,
+                        "position_id": position_id,
                         "pair": pair,
                         "side": "sell",
-                        "amount_crypto": position.amount_crypto,
+                        "amount_crypto": amount_crypto,
                         "amount_eur": gross_eur,
                         "price": filled_price,
                         "fee_eur": fee_eur,
@@ -138,14 +152,14 @@ class RealTrader:
                     "trade_id": trade.id,
                     "pair": pair,
                     "side": "sell",
-                    "amount_crypto": position.amount_crypto,
+                    "amount_crypto": amount_crypto,
                     "amount_eur": gross_eur,
                     "price": filled_price,
-                    "entry_price": position.entry_price,
-                    "entry_timestamp": position.entry_timestamp.isoformat() if position.entry_timestamp else None,
+                    "entry_price": entry_price,
+                    "entry_timestamp": entry_timestamp,
                     "fee_eur": fee_eur,
                     "pnl_eur": pnl_eur,
-                    "pnl_pct": pnl_eur / position.amount_eur_invested * 100,
+                    "pnl_pct": pnl_eur / amount_eur_invested * 100,
                     "close_reason": reason,
                     "mode": "real",
                 }
