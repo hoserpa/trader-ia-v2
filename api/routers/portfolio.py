@@ -5,7 +5,7 @@ import sys
 import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "bot"))
-from database.crud import get_portfolio_history, reset_portfolio_data
+from database.crud import get_portfolio_history, reset_portfolio_data, reset_full_portfolio_data
 from database.init_db import SessionLocal
 
 router = APIRouter()
@@ -45,6 +45,33 @@ async def reset_history():
     db = SessionLocal()
     try:
         result = reset_portfolio_data(db)
+        return {"success": True, **result}
+    finally:
+        db.close()
+
+
+@router.post("/reset-full")
+async def reset_full():
+    """Reset completo: borra todo (trades, posiciones, snapshots, balance Redis).
+    Solo disponible en modo DEMO."""
+    from api.main import get_redis
+    redis = get_redis()
+    status_raw = await redis.get("bot:status")
+    if status_raw:
+        import json
+        status = json.loads(status_raw)
+        if status.get("mode") != "demo":
+            return {"error": "Solo disponible en modo DEMO"}
+    
+    db = SessionLocal()
+    try:
+        result = reset_full_portfolio_data(db)
+        
+        await redis.delete("portfolio:state")
+        await redis.delete("bot:stats")
+        await redis.delete("open_positions")
+        await redis.set("portfolio:balance_eur", "10000")
+        
         return {"success": True, **result}
     finally:
         db.close()

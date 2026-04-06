@@ -29,6 +29,7 @@
       <span v-for="(price, pair) in prices" :key="pair" class="price-chip">
         {{ pair }}: <strong>{{ formatPrice(price) }}€</strong>
       </span>
+      <button v-if="botStatus.mode === 'demo'" @click="resetPortfolio" class="reset-btn" title="Resetear todo">↺</button>
     </div>
   </header>
 

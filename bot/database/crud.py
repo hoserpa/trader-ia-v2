@@ -248,3 +248,17 @@ def reset_portfolio_data(db: Session) -> dict:
         "trades_deleted": deleted_trades,
         "closed_positions_deleted": deleted_positions,
     }
+
+
+def reset_full_portfolio_data(db: Session) -> dict:
+    """Reset completo: borra todo (snapshots, trades, posiciones ABIERTAS Y CERRADAS, stats).
+    Para uso exclusivo en modo DEMO."""
+    deleted_snapshots = db.query(PortfolioSnapshot).delete()
+    deleted_trades = db.query(Trade).delete()
+    deleted_positions = db.query(Position).delete()
+    db.commit()
+    return {
+        "snapshots_deleted": deleted_snapshots,
+        "trades_deleted": deleted_trades,
+        "positions_deleted": deleted_positions,
+    }

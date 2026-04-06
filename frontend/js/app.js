@@ -74,15 +74,25 @@ createApp({
     };
 
     const resetPortfolio = async () => {
-      if (!confirm('¿Resetear historial de portfolio? Esto borrará trades, posiciones cerradas y el gráfico. El balance se mantendrá.')) return;
+      if (!confirm('⚠️ Reset COMPLETO: Se borrarán TODOS los datos (trades, posiciones, historial, balance). ¿Continuar?')) return;
       try {
-        const res = await api.post('/portfolio/reset');
+        const res = await api.post('/portfolio/reset-full');
         if (res.data.error) {
           alert(res.data.error);
           return;
         }
+        portfolio.value = { total_value_eur: 10000, balance_eur: 10000, total_pnl_eur: 0, total_pnl_pct: 0, positions: {} };
+        openPositions.value = [];
+        trades.value = [];
+        latestSignals.value = [];
+        stats.value = {};
+        await loadPortfolio();
+        await loadTrades();
+        await loadOpenPositions();
+        await loadSignals();
+        stats.value = {};
         await loadPortfolioHistory(historyDays.value);
-        alert('Historial reseteado: ' + res.data.snapshots_deleted + ' snapshots, ' + res.data.trades_deleted + ' trades');
+        alert('✓ Reset completo: ' + res.data.trades_deleted + ' trades, ' + res.data.positions_deleted + ' posiciones, ' + res.data.snapshots_deleted + ' snapshots borrados');
       } catch (e) { alert('Error al resetear: ' + e.message); }
     };
 
