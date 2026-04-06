@@ -86,11 +86,12 @@ createApp({
         trades.value = [];
         latestSignals.value = [];
         stats.value = {};
-        await loadPortfolio();
-        await loadTrades();
-        await loadOpenPositions();
-        await loadSignals();
-        stats.value = {};
+        const portRes = await api.get('/portfolio');
+        portfolio.value = portRes.data;
+        trades.value = (await api.get('/trades?limit=50')).data;
+        openPositions.value = (await api.get('/portfolio')).data.positions || [];
+        latestSignals.value = (await api.get('/market/signals')).data;
+        stats.value = (await api.get('/trades/stats')).data;
         await loadPortfolioHistory(historyDays.value);
         alert('✓ Reset completo: ' + res.data.trades_deleted + ' trades, ' + res.data.positions_deleted + ' posiciones, ' + res.data.snapshots_deleted + ' snapshots borrados');
       } catch (e) { alert('Error al resetear: ' + e.message); }
