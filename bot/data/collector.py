@@ -6,7 +6,6 @@ from typing import Optional
 import ccxt.async_support as ccxt
 import pandas as pd
 import redis.asyncio as aioredis
-import httpx
 from loguru import logger
 from config import config
 from database.crud import upsert_candles
@@ -62,20 +61,7 @@ class DataCollector:
         """Verifica si el exchange soporta WebSocket para tickers."""
         try:
             await self.exchange.load_markets()
-            if not hasattr(self.exchange, 'watch_tickers'):
-                return False
-            
-            try:
-                symbol = config.trading.get_symbol(config.trading.pairs[0])
-                ticker = await asyncio.wait_for(
-                    self.exchange.fetch_ticker(symbol),
-                    timeout=5.0
-                )
-                return False
-            except Exception:
-                pass
-            
-            return False
+            return hasattr(self.exchange, 'watch_tickers')
         except Exception:
             return False
 
@@ -153,7 +139,7 @@ class DataCollector:
     async def _fetch_and_store_ohlcv(self, pair: str) -> None:
         symbol = config.trading.get_symbol(pair)
         ohlcv = await self.exchange.fetch_ohlcv(
-            symbol, timeframe=config.trading.timeframe, limit=10
+            symbol, timeframe=config.trading.timeframe, limit=3
         )
         if not ohlcv:
             return
@@ -212,44 +198,7 @@ class DataCollector:
         val = await self.redis.get(self.REDIS_PRICE_KEY.format(pair=pair))
         if val:
             return float(val)
-        
-        price = await self._fetch_price_coingecko(pair)
-        if price:
-            await self.redis.set(
-                self.REDIS_PRICE_KEY.format(pair=pair),
-                str(price),
-                ex=60,
-            )
-            return price
-        
-        return None
 
-    async def _fetch_price_coingecko(self, pair: str) -> Optional[float]:
-        """Obtiene precio desde CoinGecko API como fallback."""
-        COINGECKO_IDS = {
-            "BTC/EUR": "bitcoin",
-            "BTC/USDT": "bitcoin",
-            "ETH/EUR": "ethereum",
-            "ETH/USDT": "ethereum",
-            "SOL/EUR": "solana",
-            "SOL/USDT": "solana",
-        }
-        try:
-            cg_id = COINGECKO_IDS.get(pair)
-            if not cg_id:
-                symbol = pair.replace("/EUR", "").replace("/USDT", "").lower()
-                cg_id = symbol
-            
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(
-                    "https://api.coingecko.com/api/v3/simple/price",
-                    params={"ids": cg_id, "vs_currencies": "eur"}
-                )
-                if response.status_code == 200:
-                    data = response.json()
-                    return data.get(cg_id, {}).get("eur")
-        except Exception as e:
-            logger.debug(f"CoinGecko fallback error for {pair}: {e}")
         return None
 
     @staticmethod

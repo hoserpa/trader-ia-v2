@@ -17,7 +17,7 @@ def setup_logging():
                format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{module}</cyan> | {message}")
     os.makedirs(os.path.dirname(config.log.file), exist_ok=True)
     logger.add(config.log.file, level=config.log.level, rotation=f"{config.log.max_size} MB",
-               retention=config.log.backup_count, serialize=True)
+               retention=config.log.backup_count, serialize=False)
 
 
 async def main():

@@ -2,6 +2,7 @@
 import asyncio
 import json
 from datetime import datetime
+import pandas as pd
 from loguru import logger
 import redis.asyncio as aioredis
 import ccxt
@@ -73,6 +74,8 @@ class TradingEngine:
         self._status = "stopped"
         self._consecutive_errors = 0
         self._peak_portfolio = 0
+        self._indicator_cache: dict[str, pd.DataFrame] = {}
+        self._cached_candle_ts: dict[str, str] = {}
 
     async def start(self) -> None:
         self._status = "starting"
@@ -114,39 +117,43 @@ class TradingEngine:
         while self._running:
             start_time = asyncio.get_event_loop().time()
             cycle_had_error = False
+            db = SessionLocal()
 
-            for pair in config.trading.pairs:
-                try:
-                    await self._analyze_pair(pair)
-                except RetryableError as e:
-                    logger.warning(f"⚠️ Error transitorio analizando {pair}: {e}")
-                except Exception as e:
-                    cycle_had_error = True
-                    if _is_retryable_error(e):
-                        logger.warning(f"⚠️ Error de red/transitorio analizando {pair}: {e}")
-                    else:
-                        logger.error(f"❌ Error fatal analizando {pair}: {e}")
-                        self._status = "error"
+            try:
+                for pair in config.trading.pairs:
+                    try:
+                        await self._analyze_pair(pair, db)
+                    except RetryableError as e:
+                        logger.warning(f"⚠️ Error transitorio analizando {pair}: {e}")
+                    except Exception as e:
+                        cycle_had_error = True
+                        if _is_retryable_error(e):
+                            logger.warning(f"⚠️ Error de red/transitorio analizando {pair}: {e}")
+                        else:
+                            logger.error(f"❌ Error fatal analizando {pair}: {e}")
+                            self._status = "error"
 
-            if cycle_had_error:
-                self._consecutive_errors += 1
-                if self._consecutive_errors >= 3:
-                    await self.telegram.notify_warning(
-                        f"⚠️ *{self._consecutive_errors} errores consecutivos*\n"
-                        f"El bot ha tenido errores en los últimos ciclos."
-                    )
-            else:
-                self._consecutive_errors = 0
-                if self._status == "error":
-                    self._status = "running"
-                    logger.info("✅ Bot recuperado de error")
+                if cycle_had_error:
+                    self._consecutive_errors += 1
+                    if self._consecutive_errors >= 3:
+                        await self.telegram.notify_warning(
+                            f"⚠️ *{self._consecutive_errors} errores consecutivos*\n"
+                            f"El bot ha tenido errores en los últimos ciclos."
+                        )
+                else:
+                    self._consecutive_errors = 0
+                    if self._status == "error":
+                        self._status = "running"
+                        logger.info("✅ Bot recuperado de error")
 
-            await self._save_portfolio_snapshot()
-            await self._publish_status()
+                await self._save_portfolio_snapshot(db)
+                await self._publish_status()
 
-            await self._check_drawdown()
+                await self._check_drawdown()
 
-            self.predictor.reload_if_updated()
+                self.predictor.reload_if_updated()
+            finally:
+                db.close()
 
             elapsed = asyncio.get_event_loop().time() - start_time
             sleep_time = max(0, config.trading.analysis_interval - elapsed)
@@ -171,7 +178,7 @@ class TradingEngine:
                     f"Drawdown: `{drawdown*100:.1f}%`"
                 )
 
-    async def _analyze_pair(self, pair: str) -> None:
+    async def _analyze_pair(self, pair: str, db) -> None:
         """Análisis completo de un par: datos → indicadores → features → señal → ejecución."""
         try:
             candles = await self.collector.get_latest_candles(pair, limit=config.trading.candles_required)
@@ -184,7 +191,16 @@ class TradingEngine:
             logger.debug(f"{pair}: datos insuficientes ({len(candles)} velas)")
             return
 
-        candles_with_indicators = calculate_indicators(candles)
+        last_ts = str(candles["timestamp"].iloc[-1])
+        cached_ts = self._cached_candle_ts.get(pair)
+
+        if cached_ts == last_ts and pair in self._indicator_cache:
+            candles_with_indicators = self._indicator_cache[pair]
+        else:
+            candles_with_indicators = calculate_indicators(candles)
+            self._indicator_cache[pair] = candles_with_indicators
+            self._cached_candle_ts[pair] = last_ts
+
         atr = get_atr(candles_with_indicators)
 
         try:
@@ -220,56 +236,52 @@ class TradingEngine:
                      "atr_pct": atr / current_price if current_price > 0 else 0}
         }))
 
-        db = SessionLocal()
-        try:
-            open_position = get_open_position_by_pair(db, pair)
-            open_position_dict = get_open_position_by_pair_dict(db, pair)
+        open_position = get_open_position_by_pair(db, pair)
+        open_position_dict = get_open_position_by_pair_dict(db, pair)
 
-            executed = False
-            rejection_reason = None
+        executed = False
+        rejection_reason = None
 
-            if open_position:
-                should_sell, sell_reason = self.risk_manager.can_sell(pair, open_position_dict, signal, current_price)
-                if should_sell:
-                    trade = await self.trader.execute_sell(pair, open_position, current_price, sell_reason)
-                    if trade:
-                        executed = True
-                        await self.redis.publish("bot:live_updates", json.dumps({"type": "trade_executed", "data": trade}))
-                        await self.telegram.notify_position_closed(trade, trade.get("pnl_eur", 0), open_position_dict)
+        if open_position:
+            should_sell, sell_reason = self.risk_manager.can_sell(pair, open_position_dict, signal, current_price)
+            if should_sell:
+                trade = await self.trader.execute_sell(pair, open_position, current_price, sell_reason)
+                if trade:
+                    executed = True
+                    await self.redis.publish("bot:live_updates", json.dumps({"type": "trade_executed", "data": trade}))
+                    await self.telegram.notify_position_closed(trade, trade.get("pnl_eur", 0), open_position_dict)
+        else:
+            portfolio_state = self.portfolio.get()
+            prices = {p: await self.collector.get_current_price(p) or 0 for p in config.trading.pairs}
+            portfolio_state = await self.portfolio.update_valuations(prices)
+
+            can_buy, reason, amount_eur = self.risk_manager.can_buy(
+                pair, signal, portfolio_state, current_price, atr
+            )
+            if can_buy:
+                trade = await self.trader.execute_buy(pair, amount_eur, current_price, atr)
+
+                if trade:
+                    executed = True
+                    await self.redis.publish("bot:live_updates", json.dumps({"type": "trade_executed", "data": trade}))
+                    await self.telegram.notify_trade(trade, signal)
             else:
-                portfolio_state = self.portfolio.get()
-                prices = {p: await self.collector.get_current_price(p) or 0 for p in config.trading.pairs}
-                portfolio_state = await self.portfolio.update_valuations(prices)
+                rejection_reason = reason
+                if signal["signal"] != "HOLD":
+                    logger.debug(f"  ↳ Señal {signal['signal']} rechazada: {reason}")
 
-                can_buy, reason, amount_eur = self.risk_manager.can_buy(
-                    pair, signal, portfolio_state, current_price, atr
-                )
-                if can_buy:
-                    trade = await self.trader.execute_buy(pair, amount_eur, current_price, atr)
+        save_decision(db, {
+            "pair": pair,
+            "signal": signal["signal"],
+            "confidence": signal["confidence"],
+            "prob_buy": signal["probabilities"].get("BUY", 0),
+            "prob_sell": signal["probabilities"].get("SELL", 0),
+            "prob_hold": signal["probabilities"].get("HOLD", 1),
+            "executed": executed,
+            "rejection_reason": rejection_reason,
+        })
 
-                    if trade:
-                        executed = True
-                        await self.redis.publish("bot:live_updates", json.dumps({"type": "trade_executed", "data": trade}))
-                        await self.telegram.notify_trade(trade, signal)
-                else:
-                    rejection_reason = reason
-                    if signal["signal"] != "HOLD":
-                        logger.debug(f"  ↳ Señal {signal['signal']} rechazada: {reason}")
-
-            save_decision(db, {
-                "pair": pair,
-                "signal": signal["signal"],
-                "confidence": signal["confidence"],
-                "prob_buy": signal["probabilities"].get("BUY", 0),
-                "prob_sell": signal["probabilities"].get("SELL", 0),
-                "prob_hold": signal["probabilities"].get("HOLD", 1),
-                "executed": executed,
-                "rejection_reason": rejection_reason,
-            })
-        finally:
-            db.close()
-
-    async def _save_portfolio_snapshot(self) -> None:
+    async def _save_portfolio_snapshot(self, db) -> None:
         """Guarda snapshot del portafolio actual en DB."""
         prices = {}
         for pair in config.trading.pairs:
@@ -278,11 +290,7 @@ class TradingEngine:
                 prices[pair] = price
         state = await self.portfolio.update_valuations(prices)
 
-        db = SessionLocal()
-        try:
-            save_portfolio_snapshot(db, state)
-        finally:
-            db.close()
+        save_portfolio_snapshot(db, state)
 
         await self.redis.publish("bot:live_updates", json.dumps({"type": "portfolio_update", "data": state}))
 
