@@ -58,10 +58,10 @@ class DataCollector:
             )
 
     async def _check_websocket_support(self) -> bool:
-        """Verifica si el exchange soporta WebSocket para tickers."""
+        """Verifica si el exchange soporta watchTickers via has dict."""
         try:
             await self.exchange.load_markets()
-            return hasattr(self.exchange, 'watch_tickers')
+            return bool(self.exchange.has.get('watchTickers', False))
         except Exception:
             return False
 
@@ -71,20 +71,31 @@ class DataCollector:
         logger.info("DataCollector detenido.")
 
     async def _run_websocket_loop(self) -> None:
-        """Loop de reconexión del WebSocket de tickers."""
+        """Loop de reconexión del WebSocket de tickers.
+        Si falla MAX_WS_RETRIES veces seguidas, cambia a polling REST.
+        """
+        ws_failures = 0
+        MAX_WS_RETRIES = 3
         delay = self._reconnect_delay
-        while self._running:
+
+        while self._running and ws_failures < MAX_WS_RETRIES:
             try:
                 await self._watch_tickers()
+                ws_failures = 0
                 delay = self._reconnect_delay
             except Exception as e:
-                logger.warning(f"WebSocket desconectado: {e}. Reconectando en {delay}s...")
+                ws_failures += 1
+                logger.warning(f"WebSocket error ({ws_failures}/{MAX_WS_RETRIES}): {e}. Reconectando en {delay}s...")
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, self._max_reconnect_delay)
 
+        if ws_failures >= MAX_WS_RETRIES and self._running:
+            logger.warning(f"WebSocket: {MAX_WS_RETRIES} intentos fallidos, cambiando a polling REST")
+            await self._run_polling_loop()
+
     async def _run_polling_loop(self) -> None:
-        """Fallback: consulta precios por REST cada 30s cuando WebSocket no está disponible."""
-        poll_interval = 30
+        """Fallback: consulta precios por REST cada 60s."""
+        poll_interval = 60
         while self._running:
             try:
                 for pair in config.trading.pairs:

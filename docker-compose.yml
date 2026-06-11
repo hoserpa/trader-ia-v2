@@ -8,6 +8,7 @@ services:
     volumes:
       - redis_data:/data
     restart: unless-stopped
+    mem_limit: 128m
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -37,6 +38,7 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    mem_limit: 512m
     networks:
       - crypto_network
 
