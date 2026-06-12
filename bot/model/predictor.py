@@ -71,12 +71,29 @@ class ModelPredictor:
 
             X_scaled = self.scaler.transform(X)
 
+            buy_sell_diff = 0.0
+
             if hasattr(self.model, 'predict_proba'):
                 probs = self.model.predict_proba(X_scaled)[0]
                 class_order = self.model.classes_
                 prob_dict = {self.SIGNAL_MAP[int(c)]: float(p) for c, p in zip(class_order, probs)}
-                best_class = int(class_order[np.argmax(probs)])
-                confidence = float(np.max(probs))
+                p_buy = prob_dict.get("BUY", 0)
+                p_sell = prob_dict.get("SELL", 0)
+                p_hold = prob_dict.get("HOLD", 1.0)
+                buy_sell_diff = p_buy - p_sell
+
+                # Usar diferencia directional en vez de argmax, porque el modelo
+                # tiene bias hacia HOLD (~90%+ de las labels de entrenamiento)
+                min_diff = 0.005
+                if buy_sell_diff > min_diff:
+                    signal = "BUY"
+                    confidence = buy_sell_diff / (buy_sell_diff + p_hold)
+                elif buy_sell_diff < -min_diff:
+                    signal = "SELL"
+                    confidence = -buy_sell_diff / (-buy_sell_diff + p_hold)
+                else:
+                    signal = "HOLD"
+                    confidence = p_hold
             else:
                 predictions = self.model.predict(X_scaled)
                 logger.debug(f"Predictions type: {type(predictions)}, shape: {predictions.shape}, value: {predictions}")
@@ -87,29 +104,15 @@ class ModelPredictor:
                 for other_class in [0, 1, 2]:
                     if other_class != best_class:
                         prob_dict[self.SIGNAL_MAP[other_class]] = (1 - confidence) / 2
-            
-            signal = self.SIGNAL_MAP[best_class]
-            
-            logger.debug(f"Raw predictions: best_class={best_class}, confidence={confidence}")
+                signal = self.SIGNAL_MAP[best_class]
 
-            # Apply threshold - pero permitir signal si es la mejor probabilidad relativa
-            if signal == "BUY" and confidence < config.risk.buy_threshold:
-                # Si BUY tiene mayor probabilidad que SELL, ejecutar aunque confianza baja
-                if prob_dict.get("BUY", 0) > prob_dict.get("SELL", 0):
-                    logger.info(f"⚡ BUY信号 con baja confianza pero mejor que SELL: {prob_dict}")
-                else:
-                    signal = "HOLD"
-            elif signal == "SELL" and confidence < config.risk.sell_threshold:
-                # Si SELL tiene mayor probabilidad que BUY, ejecutar aunque confianza baja
-                if prob_dict.get("SELL", 0) > prob_dict.get("BUY", 0):
-                    logger.info(f"⚡ SELL信号 con baja confianza pero mejor que BUY: {prob_dict}")
-                else:
-                    signal = "HOLD"
+            logger.debug(f"Predictions: signal={signal}, confidence={confidence:.4f}, diff={buy_sell_diff:.4f}, probs={prob_dict}")
 
             return {
                 "signal": signal,
                 "confidence": confidence,
                 "probabilities": prob_dict,
+                "buy_sell_diff": buy_sell_diff,
                 "timestamp": datetime.utcnow().isoformat(),
             }
         except Exception as e:
@@ -117,21 +120,25 @@ class ModelPredictor:
             return None
 
     def reload_if_updated(self) -> None:
-        """Recarga el modelo si el archivo ha sido actualizado."""
+        """Recarga el modelo si el archivo ha sido actualizado.
+        Usa mtime como entero para evitar falsos positivos por precision float.
+        """
         if not os.path.exists(config.model.model_path):
             logger.warning("reload_if_updated: modelo no encontrado")
             return
-        mtime = os.path.getmtime(config.model.model_path)
+        mtime = int(os.path.getmtime(config.model.model_path) * 1_000_000)
         stored_mtime = self.metadata.get("_file_mtime", 0)
         logger.debug(f"reload_if_updated: mtime={mtime}, stored={stored_mtime}")
         if mtime > stored_mtime:
-            logger.info(f"Modelo actualizado detectado (mtime={mtime}), recargando...")
+            logger.info(f"Modelo actualizado detectado, recargando...")
+            old_metadata = self.metadata.copy()
             self._load()
             if self.is_model_loaded():
                 self.metadata["_file_mtime"] = mtime
                 logger.info("Modelo recargado correctamente")
             else:
-                logger.error("Error al recargar el modelo")
+                self.metadata = old_metadata
+                logger.error("Error al recargar el modelo, manteniendo version anterior")
 
     def get_model_metadata(self) -> dict:
         return {

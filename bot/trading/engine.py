@@ -1,6 +1,7 @@
 """Orquestador principal del ciclo de análisis y trading."""
 import asyncio
 import json
+import os
 from datetime import datetime
 import pandas as pd
 from loguru import logger
@@ -77,7 +78,31 @@ class TradingEngine:
         self._indicator_cache: dict[str, pd.DataFrame] = {}
         self._cached_candle_ts: dict[str, str] = {}
 
+    async def _acquire_instance_lock(self) -> bool:
+        """Intenta adquirir lock de instancia única via Redis SETNX.
+        Previene que dos procesos bot corran simultáneamente.
+        """
+        import socket
+        pid = os.getpid()
+        hostname = socket.gethostname()
+        lock_value = f"{hostname}:{pid}"
+        lock_key = "bot:instance_lock"
+        acquired = await self.redis.setnx(lock_key, lock_value)
+        if acquired:
+            await self.redis.expire(lock_key, config.trading.analysis_interval + 60)
+            logger.info(f"Instance lock adquirido ({lock_value})")
+            return True
+        existing = await self.redis.get(lock_key)
+        logger.warning(f"Instance lock ocupado por {existing}. Saliendo para evitar duplicados.")
+        return False
+
+    async def _release_instance_lock(self) -> None:
+        await self.redis.delete("bot:instance_lock")
+
     async def start(self) -> None:
+        if not await self._acquire_instance_lock():
+            return
+
         self._status = "starting"
         await self._publish_status()
         logger.info("Iniciando motor de trading...")
@@ -108,6 +133,7 @@ class TradingEngine:
         await self.collector.stop()
         await self.telegram.notify_bot_stopped()
         await self._publish_status()
+        await self._release_instance_lock()
         logger.info("Motor de trading detenido.")
 
     async def _analysis_loop(self) -> None:

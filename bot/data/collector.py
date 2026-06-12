@@ -33,12 +33,55 @@ class DataCollector:
     def _build_exchange(self):
         exchange_id = config.exchange.name.lower()
         params = {
-            "apiKey": config.exchange.api_key,
-            "secret": config.exchange.api_secret,
             "enableRateLimit": True,
-            "options": {"defaultType": "spot"},
+            "options": {
+                "defaultType": "spot",
+                "loadMarkets": False,
+            },
         }
-        return getattr(ccxt, exchange_id)(params)
+        if config.trading.mode == "real":
+            params["apiKey"] = config.exchange.api_key
+            params["secret"] = config.exchange.api_secret
+
+        exchange = getattr(ccxt, exchange_id)(params)
+
+        # Inyectar markets manualmente para evitar que ccxt llame a
+        # endpoints de margin/futures durante load_markets()
+        self._inject_markets(exchange)
+        return exchange
+
+    def _inject_markets(self, exchange) -> None:
+        """Crea entries de mercado para los pares configurados.
+        Esto evita que fetch_ticker/fetch_ohlcv intenten load_markets()
+        que dispararia requests a endpoints margin/futures no autorizados.
+        """
+        exchange.markets = {}
+        for pair in config.trading.pairs:
+            symbol = config.trading.get_symbol(pair)
+            base = pair.split("/")[0]
+            quote = pair.split("/")[1]
+            exchange.markets[pair] = {
+                "id": symbol,
+                "symbol": pair,
+                "base": base,
+                "quote": quote,
+                "active": True,
+                "type": "spot",
+                "spot": True,
+                "margin": False,
+                "contract": False,
+                "precision": {"price": 8, "amount": 8},
+                "limits": {
+                    "amount": {"min": 0.001, "max": None},
+                    "price": {"min": None, "max": None},
+                    "cost": {"min": None, "max": None},
+                },
+                "info": {},
+            }
+        exchange.markets_by_id = {m["id"]: m for m in exchange.markets.values() if m.get("id")}
+        exchange.symbols = list(exchange.markets.keys())
+        exchange.ids = list(exchange.markets_by_id.keys())
+        logger.info(f"Mercados inyectados para {len(exchange.markets)} pares: {config.trading.pairs}")
 
     async def start(self) -> None:
         self._running = True
@@ -58,12 +101,11 @@ class DataCollector:
             )
 
     async def _check_websocket_support(self) -> bool:
-        """Verifica si el exchange soporta watchTickers via has dict."""
-        try:
-            await self.exchange.load_markets()
-            return bool(self.exchange.has.get('watchTickers', False))
-        except Exception:
-            return False
+        """Verifica si el exchange soporta watchTickers via has dict.
+        No llama load_markets() — exchange.has es estático y no requiere
+        requests a la API que puedan fallar por falta de permisos (margin/futures).
+        """
+        return bool(self.exchange.has.get('watchTickers', False))
 
     async def stop(self) -> None:
         self._running = False
