@@ -113,7 +113,7 @@ class ModelPredictor:
                 "confidence": confidence,
                 "probabilities": prob_dict,
                 "buy_sell_diff": buy_sell_diff,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.utcnow().isoformat() + "Z",
             }
         except Exception as e:
             logger.error(f"Error en predicción: {e}")

@@ -89,7 +89,7 @@ def get_open_position_by_pair_dict(db: Session, pair: str) -> Optional[dict]:
             "stop_loss_price": pos.stop_loss_price,
             "take_profit_price": pos.take_profit_price,
             "amount_eur_invested": pos.amount_eur_invested,
-            "entry_timestamp": pos.entry_timestamp.isoformat() if pos.entry_timestamp else None,
+            "entry_timestamp": pos.entry_timestamp.isoformat() + "Z" if pos.entry_timestamp else None,
         }
     return None
 

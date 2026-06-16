@@ -24,7 +24,7 @@ def get_history(days: int = Query(default=30, ge=1, le=365)):
     db = SessionLocal()
     try:
         snapshots = get_portfolio_history(db, days)
-        return [{"timestamp": s.timestamp.isoformat(), "total_value_eur": s.total_value_eur,
+        return [{"timestamp": s.timestamp.isoformat() + "Z", "total_value_eur": s.total_value_eur,
                  "balance_eur": s.balance_eur, "total_pnl_eur": s.total_pnl_eur,
                  "total_pnl_pct": s.total_pnl_pct} for s in snapshots]
     finally:

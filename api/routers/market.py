@@ -31,7 +31,7 @@ async def get_signals():
         return [{
             "pair": d.pair, "signal": d.signal, "confidence": d.confidence,
             "prob_buy": d.prob_buy, "prob_sell": d.prob_sell, "prob_hold": d.prob_hold,
-            "executed": d.executed, "timestamp": d.timestamp.isoformat(),
+            "executed": d.executed, "timestamp": d.timestamp.isoformat() + "Z",
         } for d in decisions]
     finally:
         db.close()

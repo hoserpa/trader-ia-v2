@@ -122,7 +122,7 @@ class DataCollector:
                             )
                             await self.redis.publish(
                                 "price_update",
-                                json.dumps({"pair": pair, "price": price, "timestamp": datetime.utcnow().isoformat()}),
+                                json.dumps({"pair": pair, "price": price, "timestamp": datetime.utcnow().isoformat() + "Z"}),
                             )
                     except Exception as e:
                         logger.warning(f"Error consultando precio {pair}: {e}")
@@ -144,7 +144,7 @@ class DataCollector:
                     )
                     await self.redis.publish(
                         "price_update",
-                        json.dumps({"pair": pair, "price": price, "timestamp": datetime.utcnow().isoformat()}),
+                        json.dumps({"pair": pair, "price": price, "timestamp": datetime.utcnow().isoformat() + "Z"}),
                     )
 
     async def _run_ohlcv_loop(self) -> None:
@@ -186,7 +186,7 @@ class DataCollector:
         pipe = self.redis.pipeline()
         for c in candles_data:
             pipe.rpush(redis_key, json.dumps({
-                "timestamp": c["timestamp"].isoformat(),
+                "timestamp": c["timestamp"].isoformat() + "Z",
                 "open": c["open"], "high": c["high"],
                 "low": c["low"], "close": c["close"], "volume": c["volume"],
             }))
@@ -196,7 +196,7 @@ class DataCollector:
         latest = candles_data[-1]
         await self.redis.publish(
             self.REDIS_CHANNEL,
-            json.dumps({"pair": pair, "timestamp": latest["timestamp"].isoformat(), "close": latest["close"]}),
+            json.dumps({"pair": pair, "timestamp": latest["timestamp"].isoformat() + "Z", "close": latest["close"]}),
         )
         logger.debug(f"OHLCV actualizado: {pair} | close={latest['close']}")
 

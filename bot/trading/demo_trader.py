@@ -30,7 +30,7 @@ class DemoTrader:
             "amount_eur_invested": net_eur,
             "stop_loss_price": stop_loss,
             "take_profit_price": take_profit,
-            "entry_timestamp": datetime.utcnow().isoformat(),
+            "entry_timestamp": datetime.utcnow().isoformat() + "Z",
         })
 
         db = SessionLocal()
@@ -68,7 +68,7 @@ class DemoTrader:
             "fee_eur": fee,
             "stop_loss": stop_loss,
             "take_profit": take_profit,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.utcnow().isoformat() + "Z",
             "mode": "demo",
         }
         logger.info(f"🟢 [DEMO] COMPRA {pair}: {amount_crypto:.8f} @ {current_price:.2f}€ (inv={amount_eur:.2f}€, SL={stop_loss:.2f}, TP={take_profit:.2f})")
@@ -128,6 +128,6 @@ class DemoTrader:
             "pnl_eur": pnl_eur,
             "pnl_pct": pnl_eur / amount_eur_invested * 100,
             "close_reason": reason,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.utcnow().isoformat() + "Z",
             "mode": "demo",
         }

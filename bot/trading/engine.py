@@ -326,7 +326,7 @@ class TradingEngine:
             "mode": config.trading.mode,
             "pairs": config.trading.pairs,
             "model_loaded": self.predictor.is_model_loaded(),
-            "last_update": datetime.utcnow().isoformat(),
+            "last_update": datetime.utcnow().isoformat() + "Z",
         }))
         await self.redis.publish("bot:live_updates", json.dumps({
             "type": "bot_status",

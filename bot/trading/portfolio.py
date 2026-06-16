@@ -36,7 +36,7 @@ class Portfolio:
             "total_value_eur": initial_balance,
             "total_pnl_eur": 0.0,
             "total_pnl_pct": 0.0,
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": datetime.utcnow().isoformat() + "Z",
         }
         await self._save(state)
         logger.info(f"Portafolio inicializado con {initial_balance}€")
