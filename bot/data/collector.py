@@ -36,7 +36,7 @@ class DataCollector:
             "enableRateLimit": True,
             "options": {
                 "defaultType": "spot",
-                "loadMarkets": False,
+                "fetchMarkets": ["spot"],
             },
         }
         if config.trading.mode == "real":
@@ -44,48 +44,17 @@ class DataCollector:
             params["secret"] = config.exchange.api_secret
 
         exchange = getattr(ccxt, exchange_id)(params)
-
-        # Inyectar markets manualmente para evitar que ccxt llame a
-        # endpoints de margin/futures durante load_markets()
-        self._inject_markets(exchange)
         return exchange
-
-    def _inject_markets(self, exchange) -> None:
-        """Crea entries de mercado para los pares configurados.
-        Esto evita que fetch_ticker/fetch_ohlcv intenten load_markets()
-        que dispararia requests a endpoints margin/futures no autorizados.
-        """
-        exchange.markets = {}
-        for pair in config.trading.pairs:
-            symbol = config.trading.get_symbol(pair)
-            base = pair.split("/")[0]
-            quote = pair.split("/")[1]
-            exchange.markets[pair] = {
-                "id": symbol,
-                "symbol": pair,
-                "base": base,
-                "quote": quote,
-                "active": True,
-                "type": "spot",
-                "spot": True,
-                "margin": False,
-                "contract": False,
-                "precision": {"price": 8, "amount": 8},
-                "limits": {
-                    "amount": {"min": 0.001, "max": None},
-                    "price": {"min": None, "max": None},
-                    "cost": {"min": None, "max": None},
-                },
-                "info": {},
-            }
-        exchange.markets_by_id = {m["id"]: m for m in exchange.markets.values() if m.get("id")}
-        exchange.symbols = list(exchange.markets.keys())
-        exchange.ids = list(exchange.markets_by_id.keys())
-        logger.info(f"Mercados inyectados para {len(exchange.markets)} pares: {config.trading.pairs}")
 
     async def start(self) -> None:
         self._running = True
         logger.info(f"Iniciando recolección de datos para pares: {config.trading.pairs}")
+
+        # Cargar mercados spot explicitamente (endpoint público, no requiere API key)
+        try:
+            await self.exchange.load_markets()
+        except Exception as e:
+            logger.error(f"Error cargando mercados: {e}")
         
         if await self._check_websocket_support():
             logger.info("WebSocket soportado, usando streaming en tiempo real.")
