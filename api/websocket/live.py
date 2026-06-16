@@ -31,14 +31,21 @@ async def websocket_live(websocket: WebSocket):
         await pubsub.subscribe("bot:live_updates", "price_update")
 
         async def reader():
-            async for message in pubsub.listen():
-                if message["type"] == "message":
-                    await websocket.send_text(message["data"])
+            while True:
+                try:
+                    message = await pubsub.get_message(timeout=30.0, ignore_subscribe_messages=True)
+                    if message:
+                        await websocket.send_text(message["data"])
+                except asyncio.TimeoutError:
+                    pass
 
         async def ping_loop():
             while True:
                 await asyncio.sleep(30)
-                await websocket.send_text(json.dumps({"type": "ping"}))
+                try:
+                    await websocket.send_text(json.dumps({"type": "ping"}))
+                except WebSocketDisconnect:
+                    break
 
         await asyncio.gather(reader(), ping_loop())
 

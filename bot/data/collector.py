@@ -186,7 +186,7 @@ class DataCollector:
         pipe = self.redis.pipeline()
         for c in candles_data:
             pipe.rpush(redis_key, json.dumps({
-                "timestamp": c["timestamp"].isoformat() + "Z",
+                "timestamp": c["timestamp"].isoformat(),
                 "open": c["open"], "high": c["high"],
                 "low": c["low"], "close": c["close"], "volume": c["volume"],
             }))
@@ -209,7 +209,7 @@ class DataCollector:
 
         rows = [json.loads(r) for r in raw]
         df = pd.DataFrame(rows)
-        df["timestamp"] = pd.to_datetime(df["timestamp"])
+        df["timestamp"] = pd.to_datetime(df["timestamp"].str.rstrip("Z"))
         df = df.sort_values("timestamp").reset_index(drop=True)
         for col in ["open", "high", "low", "close", "volume"]:
             df[col] = df[col].astype(float)
