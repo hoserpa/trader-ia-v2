@@ -105,6 +105,82 @@ class RealTrader:
                 await asyncio.sleep(self.RETRY_DELAY)
         return None
 
+    async def execute_partial_sell(self, pair: str, position, current_price: float, fraction: float, reason: str) -> dict:
+        """Vende una fracción de la posición en el exchange real."""
+        if isinstance(position, dict):
+            amount_crypto = position["amount_crypto"] * fraction
+            full_amount = position["amount_crypto"]
+            amount_eur_invested = position["amount_eur_invested"]
+            entry_price = position["entry_price"]
+            position_id = position["id"]
+        else:
+            amount_crypto = position.amount_crypto * fraction
+            full_amount = position.amount_crypto
+            amount_eur_invested = position.amount_eur_invested
+            entry_price = position.entry_price
+            position_id = position.id
+
+        for attempt in range(self.MAX_RETRIES):
+            try:
+                order = await self.exchange.create_market_sell_order(pair, amount_crypto)
+                self._consecutive_errors = 0
+                filled_price = order.get("average", current_price)
+                gross_eur = amount_crypto * filled_price
+                fee_eur = order.get("fee", {}).get("cost", gross_eur * config.exchange.taker_fee)
+                invested_part = amount_eur_invested * fraction
+                pnl_eur = (gross_eur - fee_eur) - invested_part
+
+                remaining_crypto = full_amount - amount_crypto
+
+                db = SessionLocal()
+                try:
+                    if remaining_crypto > 0.00000001:
+                        from database.models import Position as PositionModel
+                        pos = db.query(PositionModel).get(position_id)
+                        if pos:
+                            pos.amount_crypto = remaining_crypto
+                            pos.amount_eur_invested = amount_eur_invested - invested_part
+                            db.commit()
+                    else:
+                        crud.close_position(db, position_id, filled_price, reason)
+
+                    trade = crud.create_trade(db, {
+                        "position_id": position_id,
+                        "pair": pair,
+                        "side": "sell",
+                        "amount_crypto": amount_crypto,
+                        "amount_eur": gross_eur,
+                        "price": filled_price,
+                        "fee_eur": fee_eur,
+                        "mode": "real",
+                        "exchange_order_id": order.get("id"),
+                    })
+                finally:
+                    db.close()
+
+                logger.info(f"💚 [REAL] VENTA PARCIAL {pair} @ {filled_price:.2f}€ | PnL={pnl_eur:+.2f}€ | restante={remaining_crypto:.8f} | {reason}")
+                return {
+                    "trade_id": trade.id,
+                    "pair": pair,
+                    "side": "sell",
+                    "amount_crypto": amount_crypto,
+                    "amount_eur": gross_eur,
+                    "price": filled_price,
+                    "entry_price": entry_price,
+                    "fee_eur": fee_eur,
+                    "pnl_eur": pnl_eur,
+                    "pnl_pct": pnl_eur / invested_part * 100 if invested_part > 0 else 0,
+                    "close_reason": reason,
+                    "partial": True,
+                    "remaining_crypto": remaining_crypto,
+                    "mode": "real",
+                }
+            except Exception as e:
+                self._consecutive_errors += 1
+                logger.error(f"Error en venta parcial {pair} (intento {attempt+1}): {e}")
+                await asyncio.sleep(self.RETRY_DELAY)
+        return None
+
     async def execute_sell(self, pair: str, position, current_price: float, reason: str) -> dict:
         self._check_circuit_breaker()
         
@@ -118,7 +194,7 @@ class RealTrader:
             amount_crypto = position.amount_crypto
             amount_eur_invested = position.amount_eur_invested
             entry_price = position.entry_price
-            entry_timestamp = position.entry_timestamp
+            entry_timestamp = position.entry_timestamp.isoformat() + "Z" if hasattr(position.entry_timestamp, 'isoformat') else position.entry_timestamp
             position_id = position.id
         
         for attempt in range(self.MAX_RETRIES):

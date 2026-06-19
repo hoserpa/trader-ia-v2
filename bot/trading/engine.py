@@ -2,7 +2,20 @@
 import asyncio
 import json
 import os
-from datetime import datetime
+from datetime import datetime, date
+
+
+class DateTimeEncoder(json.JSONEncoder):
+    """JSON encoder que serializa datetime/date a string ISO."""
+    def default(self, obj):
+        if isinstance(obj, (datetime, date)):
+            return obj.isoformat() + "Z"
+        return super().default(obj)
+
+
+def _json_dumps(obj):
+    return json.dumps(obj, cls=DateTimeEncoder)
+
 import pandas as pd
 from loguru import logger
 import redis.asyncio as aioredis
@@ -77,27 +90,38 @@ class TradingEngine:
         self._peak_portfolio = 0
         self._indicator_cache: dict[str, pd.DataFrame] = {}
         self._cached_candle_ts: dict[str, str] = {}
+        self._lock_key = "bot:instance_lock"
+        self._lock_value = ""
+        self._lock_heartbeat_task: asyncio.Task | None = None
 
     async def _acquire_instance_lock(self) -> bool:
         """Intenta adquirir lock de instancia única via Redis SETNX.
-        Previene que dos procesos bot corran simultáneamente.
+        TTL corto (30s) + heartbeat para que el lock expire automáticamente
+        si el contenedor muere.
         """
         import socket
         pid = os.getpid()
         hostname = socket.gethostname()
-        lock_value = f"{hostname}:{pid}"
-        lock_key = "bot:instance_lock"
-        acquired = await self.redis.setnx(lock_key, lock_value)
+        self._lock_value = f"{hostname}:{pid}"
+        self._lock_key = "bot:instance_lock"
+        acquired = await self.redis.setnx(self._lock_key, self._lock_value)
         if acquired:
-            await self.redis.expire(lock_key, config.trading.analysis_interval + 60)
-            logger.info(f"Instance lock adquirido ({lock_value})")
+            await self.redis.expire(self._lock_key, 30)
+            logger.info(f"Instance lock adquirido ({self._lock_value})")
             return True
-        existing = await self.redis.get(lock_key)
+        existing = await self.redis.get(self._lock_key)
         logger.warning(f"Instance lock ocupado por {existing}. Saliendo para evitar duplicados.")
         return False
 
+    async def _refresh_instance_lock(self) -> None:
+        """Refresca el TTL del lock mientras el bot corre."""
+        try:
+            await self.redis.expire(self._lock_key, 30)
+        except Exception:
+            pass
+
     async def _release_instance_lock(self) -> None:
-        await self.redis.delete("bot:instance_lock")
+        await self.redis.delete(self._lock_key)
 
     async def start(self) -> None:
         if not await self._acquire_instance_lock():
@@ -122,6 +146,14 @@ class TradingEngine:
         self._status = "running"
         await self._publish_status()
         logger.info(f"Motor de trading iniciado. Intervalo: {config.trading.analysis_interval}s")
+
+        async def _lock_heartbeat():
+            while self._running:
+                await asyncio.sleep(15)
+                await self._refresh_instance_lock()
+
+        self._lock_heartbeat_task = asyncio.create_task(_lock_heartbeat())
+
         await asyncio.gather(
             self.collector.start(),
             self._analysis_loop(),
@@ -129,6 +161,8 @@ class TradingEngine:
 
     async def stop(self) -> None:
         self._running = False
+        if self._lock_heartbeat_task:
+            self._lock_heartbeat_task.cancel()
         self._status = "stopped"
         await self.collector.stop()
         await self.telegram.notify_bot_stopped()
@@ -256,7 +290,7 @@ class TradingEngine:
         
         logger.info(f"📊 {pair} | precio={current_price:.2f}€ | señal={signal['signal']} ({signal['confidence']:.0%}) | probs={signal.get('probabilities', {})} | ATR={atr:.2f}")
 
-        await self.redis.publish("bot:live_updates", json.dumps({
+        await self.redis.publish("bot:live_updates", _json_dumps({
             "type": "signal",
             "data": {**signal, "pair": pair, "price": current_price, "atr": atr,
                      "atr_pct": atr / current_price if current_price > 0 else 0}
@@ -269,27 +303,61 @@ class TradingEngine:
         rejection_reason = None
 
         if open_position:
-            should_sell, sell_reason = self.risk_manager.can_sell(pair, open_position_dict, signal, current_price)
+            port_pos = self.portfolio.get_position(pair)
+            stored_trail = port_pos.get("trailing_stop_price") if port_pos else None
+            if stored_trail is not None:
+                open_position_dict["trailing_stop_price"] = stored_trail
+
+            trailing_stop = self.risk_manager.calculate_trailing_stop(
+                open_position_dict["entry_price"], current_price, atr
+            )
+            if trailing_stop is not None:
+                if stored_trail is None or trailing_stop > stored_trail:
+                    open_position_dict["trailing_stop_price"] = trailing_stop
+                    await self.portfolio.update_position_meta(pair, "trailing_stop_price", trailing_stop)
+                    logger.info(f"  ↳ Trailing stop actualizado: {trailing_stop:.2f}€ (anterior: {stored_trail})")
+
+            take_partial, target_price = self.risk_manager.should_take_partial_profit(
+                open_position_dict["entry_price"], current_price, atr
+            )
+
+            should_sell, sell_reason = self.risk_manager.can_sell(
+                pair, open_position_dict, signal, current_price,
+                atr=atr, candles_with_indicators=candles_with_indicators
+            )
             if should_sell:
+                if take_partial and not should_sell:
+                    pass
                 trade = await self.trader.execute_sell(pair, open_position, current_price, sell_reason)
                 if trade:
                     executed = True
-                    await self.redis.publish("bot:live_updates", json.dumps({"type": "trade_executed", "data": trade}))
+                    await self.redis.publish("bot:live_updates", _json_dumps({"type": "trade_executed", "data": trade}))
                     await self.telegram.notify_position_closed(trade, trade.get("pnl_eur", 0), open_position_dict)
+            elif take_partial:
+                pnl_pct = (current_price - open_position_dict["entry_price"]) / open_position_dict["entry_price"] * 100
+                logger.info(f"  ↳ Ganancia parcial: {pnl_pct:.2f}% — tomando {config.risk.partial_exit_pct:.0%} en {pair}")
+                trade = await self.trader.execute_partial_sell(
+                    pair, open_position, current_price,
+                    config.risk.partial_exit_pct,
+                    f"partial_profit_{config.risk.partial_exit_r_multiple:.1f}R"
+                )
+                if trade:
+                    await self.redis.publish("bot:live_updates", _json_dumps({"type": "trade_executed", "data": trade}))
         else:
             portfolio_state = self.portfolio.get()
             prices = {p: await self.collector.get_current_price(p) or 0 for p in config.trading.pairs}
             portfolio_state = await self.portfolio.update_valuations(prices)
 
             can_buy, reason, amount_eur = self.risk_manager.can_buy(
-                pair, signal, portfolio_state, current_price, atr
+                pair, signal, portfolio_state, current_price, atr,
+                candles_with_indicators=candles_with_indicators,
             )
             if can_buy:
                 trade = await self.trader.execute_buy(pair, amount_eur, current_price, atr)
 
                 if trade:
                     executed = True
-                    await self.redis.publish("bot:live_updates", json.dumps({"type": "trade_executed", "data": trade}))
+                    await self.redis.publish("bot:live_updates", _json_dumps({"type": "trade_executed", "data": trade}))
                     await self.telegram.notify_trade(trade, signal)
             else:
                 rejection_reason = reason
@@ -318,17 +386,17 @@ class TradingEngine:
 
         save_portfolio_snapshot(db, state)
 
-        await self.redis.publish("bot:live_updates", json.dumps({"type": "portfolio_update", "data": state}))
+        await self.redis.publish("bot:live_updates", _json_dumps({"type": "portfolio_update", "data": state}))
 
     async def _publish_status(self) -> None:
-        await self.redis.set("bot:status", json.dumps({
+        await self.redis.set("bot:status", _json_dumps({
             "status": self._status,
             "mode": config.trading.mode,
             "pairs": config.trading.pairs,
             "model_loaded": self.predictor.is_model_loaded(),
             "last_update": datetime.utcnow().isoformat() + "Z",
         }))
-        await self.redis.publish("bot:live_updates", json.dumps({
+        await self.redis.publish("bot:live_updates", _json_dumps({
             "type": "bot_status",
             "data": {"status": self._status, "mode": config.trading.mode}
         }))

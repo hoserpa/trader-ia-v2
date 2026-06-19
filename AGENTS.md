@@ -43,7 +43,7 @@ pip install -r api/requirements.txt
 python main.py
 
 # Or via Docker
-docker-compose up -d
+docker compose up -d
 ```
 
 ### Run the API
@@ -234,7 +234,7 @@ API_PASSWORD=changeme
 ### Archivos Docker
 
 - `Dockerfile` - Imagen Python 3.11 slim con dependencias
-- `docker-compose.yml` - Servicios: redis, bot, api
+- `docker compose.yml` - Servicios: redis, bot, api
 
 ### Comandos
 
@@ -244,26 +244,26 @@ cp .env.example .env
 nano .env
 
 # 2. Construir y ejecutar todos los servicios
-docker-compose up -d --build
+docker compose up -d --build
 
 # 3. Ver logs
-docker-compose logs -f        # todos los servicios
-docker-compose logs -f bot    # solo el bot
-docker-compose logs -f api    # solo la API
+docker compose logs -f        # todos los servicios
+docker compose logs -f bot    # solo el bot
+docker compose logs -f api    # solo la API
 
 # 4. Estado de servicios
-docker-compose ps
+docker compose ps
 
 # 5. Reiniciar servicio específico
-docker-compose restart bot
-docker-compose restart api
+docker compose restart bot
+docker compose restart api
 
 # 6. Detener servicios
-docker-compose down
+docker compose down
 
 # 7. Reconstruir un servicio
-docker-compose build bot
-docker-compose up -d bot
+docker compose build bot
+docker compose up -d bot
 ```
 
 ### Raspberry Pi - Notas especiales
@@ -283,7 +283,7 @@ sudo apt install build-essential libffi-dev libssl-dev
 
 ```bash
 # Modo desarrollo con live reload
-docker-compose up -d --build
+docker compose up -d --build
 
 # Editar código en host y los cambios se reflejan automáticamente
 # (API tiene --reload, Bot requiere reiniciar)
@@ -298,15 +298,15 @@ docker exec -it crypto_redis redis-cli
 
 ```bash
 # Verificar que Redis esté funcionando
-docker-compose logs redis
+docker compose logs redis
 
 # Reiniciar Redis
-docker-compose restart redis
+docker compose restart redis
 
 # Ver uso de recursos
 docker stats
 
 # Limpiar volúmenes si hay problemas
-docker-compose down -v
-docker-compose up -d --build
+docker compose down -v
+docker compose up -d --build
 ```

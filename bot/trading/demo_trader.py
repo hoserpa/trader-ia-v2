@@ -74,6 +74,79 @@ class DemoTrader:
         logger.info(f"🟢 [DEMO] COMPRA {pair}: {amount_crypto:.8f} @ {current_price:.2f}€ (inv={amount_eur:.2f}€, SL={stop_loss:.2f}, TP={take_profit:.2f})")
         return result
 
+    async def execute_partial_sell(self, pair: str, position, current_price: float, fraction: float, reason: str) -> dict:
+        """Vende una fracción de la posición. fraction=0.5 = vender 50%."""
+        if isinstance(position, dict):
+            amount_crypto = position["amount_crypto"] * fraction
+            full_amount = position["amount_crypto"]
+            amount_eur_invested = position["amount_eur_invested"]
+            entry_price = position["entry_price"]
+            position_id = position["id"]
+        else:
+            amount_crypto = position.amount_crypto * fraction
+            full_amount = position.amount_crypto
+            amount_eur_invested = position.amount_eur_invested
+            entry_price = position.entry_price
+            position_id = position.id
+
+        gross_eur = amount_crypto * current_price
+        fee = gross_eur * config.exchange.taker_fee
+        net_eur = gross_eur - fee
+        invested_part = amount_eur_invested * fraction
+        pnl_eur = net_eur - invested_part
+
+        await self.portfolio.update_balance(net_eur)
+        remaining_crypto = full_amount - amount_crypto
+        remaining_invested = amount_eur_invested - invested_part
+
+        if remaining_crypto > 0.00000001:
+            await self.portfolio.add_position(pair, {
+                "amount_crypto": remaining_crypto,
+                "entry_price": entry_price,
+                "amount_eur_invested": remaining_invested,
+                "stop_loss_price": position.get("stop_loss_price", 0),
+                "take_profit_price": position.get("take_profit_price", 0),
+                "entry_timestamp": position.get("entry_timestamp", datetime.utcnow().isoformat() + "Z"),
+                "trailing_stop_price": position.get("trailing_stop_price"),
+            })
+        else:
+            await self.portfolio.remove_position(pair)
+
+        db = SessionLocal()
+        try:
+            trade = crud.create_trade(db, {
+                "position_id": position_id,
+                "pair": pair,
+                "side": "sell",
+                "amount_crypto": amount_crypto,
+                "amount_eur": gross_eur,
+                "price": current_price,
+                "fee_eur": fee,
+                "mode": "demo",
+            })
+        finally:
+            db.close()
+
+        emoji = "🔴" if pnl_eur < 0 else "💚"
+        logger.info(f"{emoji} [DEMO] VENTA PARCIAL {pair}: {amount_crypto:.8f} @ {current_price:.2f}€ | PnL={pnl_eur:+.2f}€ | restante={remaining_crypto:.8f} | razón={reason}")
+        return {
+            "trade_id": trade.id,
+            "pair": pair,
+            "side": "sell",
+            "amount_crypto": amount_crypto,
+            "amount_eur": gross_eur,
+            "price": current_price,
+            "entry_price": entry_price,
+            "fee_eur": fee,
+            "pnl_eur": pnl_eur,
+            "pnl_pct": pnl_eur / invested_part * 100 if invested_part > 0 else 0,
+            "close_reason": reason,
+            "partial": True,
+            "remaining_crypto": remaining_crypto,
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "mode": "demo",
+        }
+
     async def execute_sell(self, pair: str, position, current_price: float, reason: str) -> dict:
         """Simula una venta/cierre de posición."""
         if isinstance(position, dict):
@@ -86,7 +159,7 @@ class DemoTrader:
             amount_crypto = position.amount_crypto
             amount_eur_invested = position.amount_eur_invested
             entry_price = position.entry_price
-            entry_timestamp = position.entry_timestamp
+            entry_timestamp = position.entry_timestamp.isoformat() + "Z" if hasattr(position.entry_timestamp, 'isoformat') else position.entry_timestamp
             position_id = position.id
         
         gross_eur = amount_crypto * current_price

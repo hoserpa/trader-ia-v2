@@ -1,7 +1,18 @@
 """Estado y cálculos del portafolio."""
 import json
 import os
-from datetime import datetime
+from datetime import datetime, date
+
+
+class PortfolioEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, (datetime, date)):
+            return obj.isoformat() + "Z"
+        return super().default(obj)
+
+
+def _json_dumps(obj):
+    return json.dumps(obj, cls=PortfolioEncoder)
 import redis.asyncio as aioredis
 from loguru import logger
 from config import config
@@ -43,7 +54,7 @@ class Portfolio:
         return state
 
     async def _save(self, state: dict) -> None:
-        await self.redis.set(REDIS_PORTFOLIO_KEY, json.dumps(state))
+        await self.redis.set(REDIS_PORTFOLIO_KEY, _json_dumps(state))
         self._state = state
 
     def get(self) -> dict:
@@ -60,6 +71,16 @@ class Portfolio:
     async def remove_position(self, pair: str) -> None:
         self._state["positions"].pop(pair, None)
         await self._save(self._state)
+
+    async def update_position_meta(self, pair: str, key: str, value) -> None:
+        """Actualiza un campo específico de una posición sin reemplazarla entera."""
+        if pair in self._state["positions"]:
+            self._state["positions"][pair][key] = value
+            await self._save(self._state)
+
+    def get_position(self, pair: str) -> dict | None:
+        """Retorna posición de un par desde Redis (no SQLite)."""
+        return self._state.get("positions", {}).get(pair)
 
     async def update_valuations(self, current_prices: dict) -> dict:
         """Recalcula el valor total del portafolio con precios actuales."""
