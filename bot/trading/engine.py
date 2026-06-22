@@ -362,7 +362,7 @@ class TradingEngine:
             else:
                 rejection_reason = reason
                 if signal["signal"] != "HOLD":
-                    logger.debug(f"  ↳ Señal {signal['signal']} rechazada: {reason}")
+                    logger.info(f"  ↳ Señal {signal['signal']} rechazada: {reason}")
 
         save_decision(db, {
             "pair": pair,
