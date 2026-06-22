@@ -92,8 +92,8 @@ class RiskConfig:
     trailing_stop_distance_atr: float = field(default_factory=lambda: float(os.getenv("TRAILING_STOP_DISTANCE_ATR", "1.0")))
     partial_exit_pct: float = field(default_factory=lambda: float(os.getenv("PARTIAL_EXIT_PCT", "0.50")))
     partial_exit_r_multiple: float = field(default_factory=lambda: float(os.getenv("PARTIAL_EXIT_R_MULTIPLE", "1.5")))
-    rsi_oversold: float = field(default_factory=lambda: float(os.getenv("RSI_OVERSOLD", "40.0")))
-    rsi_overbought: float = field(default_factory=lambda: float(os.getenv("RSI_OVERBOUGHT", "60.0")))
+    rsi_oversold: float = field(default_factory=lambda: float(os.getenv("RSI_OVERSOLD", "30.0")))
+    rsi_overbought: float = field(default_factory=lambda: float(os.getenv("RSI_OVERBOUGHT", "70.0")))
 
 
 @dataclass
