@@ -35,7 +35,6 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 .positive { color: #4ade80; }
 .negative { color: #f87171; }
 
-.chart-section, .signals-section { background: #1c1f26; padding: 16px; border-radius: 12px; margin-bottom: 20px; }
 .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
 h2 { font-size: 1rem; font-weight: 600; margin-bottom: 12px; width: 100%; }
 .period-selector { display: flex; gap: 4px; }
@@ -73,13 +72,13 @@ h2 { font-size: 1rem; font-weight: 600; margin-bottom: 12px; width: 100%; }
 .log-badge.log-warning { background: #5f4a1e; color: #fbbf24; }
 .log-msg { color: #9ca3af; flex: 1; line-height: 1.4; word-break: break-word; }
 
-.grid-section { background: #1c1f26; padding: 16px; border-radius: 12px; margin-bottom: 20px; }
+.chart-section, .signals-section, .grid-section { background: #1c1f26; padding: 16px; border-radius: 12px; margin-bottom: 20px; }
 .grid-section h2 .badge { margin-left: 8px; vertical-align: middle; }
 .grid-summary { display: grid; grid-template-columns: 1fr; gap: 12px; }
 .grid-pair-block { background: #2d333b; padding: 14px; border-radius: 10px; }
-.grid-pair-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-.grid-pair-header strong { font-size: 0.95rem; }
-.grid-pnl { font-size: 0.9rem; font-weight: 600; }
+.grid-pair-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.grid-pair-header strong { font-weight: 600; }
+.grid-pnl { font-weight: 600; }
 .grid-info { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; }
 .grid-info-row { font-size: 0.75rem; color: #9ca3af; display: flex; justify-content: space-between; }
 .grid-info-row strong { color: #e7e9ea; }
@@ -98,12 +97,12 @@ h2 { font-size: 1rem; font-weight: 600; margin-bottom: 12px; width: 100%; }
   .card-label { font-size: 0.875rem; margin-bottom: 8px; }
   .card-value { font-size: 1.75rem; }
   .card-sub { font-size: 0.875rem; }
-  .chart-section, .signals-section { padding: 20px; margin-bottom: 24px; }
+  .chart-section, .signals-section, .grid-section { padding: 20px; margin-bottom: 24px; }
   .section-header { margin-bottom: 16px; }
   h2 { font-size: 1.125rem; margin-bottom: 16px; }
-  .signals-grid { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
-  .signal-card { padding: 16px; }
-  .signal-pair { margin-bottom: 8px; }
+  .signals-grid, .grid-summary { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+  .signal-card, .grid-pair-block { padding: 16px; }
+  .signal-pair, .grid-pair-header { margin-bottom: 8px; }
   .signal-badge { margin-bottom: 8px; }
   .signal-confidence { font-size: 0.75rem; margin-bottom: 12px; }
   .bar-row { font-size: 0.75rem; margin-bottom: 4px; }
