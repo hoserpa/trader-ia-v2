@@ -328,7 +328,7 @@ class TradingEngine:
             if should_sell:
                 if take_partial and not should_sell:
                     pass
-                trade = await self.trader.execute_sell(pair, open_position, current_price, sell_reason)
+                trade = await self.trader.execute_sell(pair, open_position, current_price, sell_reason, db=db)
                 if trade:
                     executed = True
                     await self.redis.publish("bot:live_updates", _json_dumps({"type": "trade_executed", "data": trade}))
@@ -339,7 +339,8 @@ class TradingEngine:
                 trade = await self.trader.execute_partial_sell(
                     pair, open_position, current_price,
                     config.risk.partial_exit_pct,
-                    f"partial_profit_{config.risk.partial_exit_r_multiple:.1f}R"
+                    f"partial_profit_{config.risk.partial_exit_r_multiple:.1f}R",
+                    db=db
                 )
                 if trade:
                     await self.redis.publish("bot:live_updates", _json_dumps({"type": "trade_executed", "data": trade}))
@@ -353,7 +354,7 @@ class TradingEngine:
                 candles_with_indicators=candles_with_indicators,
             )
             if can_buy:
-                trade = await self.trader.execute_buy(pair, amount_eur, current_price, atr)
+                trade = await self.trader.execute_buy(pair, amount_eur, current_price, atr, db=db)
 
                 if trade:
                     executed = True

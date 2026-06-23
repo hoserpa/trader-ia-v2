@@ -35,7 +35,7 @@ class RealTrader:
         if self._circuit_open:
             raise RuntimeError("Circuit breaker abierto. Bot pausado por errores consecutivos. Revisión manual requerida.")
 
-    async def execute_buy(self, pair: str, amount_eur: float, current_price: float, atr: float) -> dict:
+    async def execute_buy(self, pair: str, amount_eur: float, current_price: float, atr: float, db=None) -> dict:
         self._check_circuit_breaker()
         amount_crypto = (amount_eur * (1 - config.exchange.taker_fee)) / current_price
 
@@ -52,7 +52,12 @@ class RealTrader:
                 stop_loss = self.risk.calculate_stop_loss(filled_price, atr)
                 take_profit = self.risk.calculate_take_profit(filled_price, atr)
 
-                db = SessionLocal()
+                if db is None:
+                    db = SessionLocal()
+                    close_db = True
+                else:
+                    close_db = False
+
                 try:
                     position = crud.create_position(db, {
                         "pair": pair,
@@ -74,7 +79,8 @@ class RealTrader:
                         "exchange_order_id": order.get("id"),
                     })
                 finally:
-                    db.close()
+                    if close_db:
+                        db.close()
 
                 logger.info(f"🟢 [REAL] COMPRA {pair}: {filled_amount:.8f} @ {filled_price:.2f}€")
                 return {
@@ -105,7 +111,7 @@ class RealTrader:
                 await asyncio.sleep(self.RETRY_DELAY)
         return None
 
-    async def execute_partial_sell(self, pair: str, position, current_price: float, fraction: float, reason: str) -> dict:
+    async def execute_partial_sell(self, pair: str, position, current_price: float, fraction: float, reason: str, db=None) -> dict:
         """Vende una fracción de la posición en el exchange real."""
         if isinstance(position, dict):
             amount_crypto = position["amount_crypto"] * fraction
@@ -132,7 +138,12 @@ class RealTrader:
 
                 remaining_crypto = full_amount - amount_crypto
 
-                db = SessionLocal()
+                if db is None:
+                    db = SessionLocal()
+                    close_db = True
+                else:
+                    close_db = False
+
                 try:
                     if remaining_crypto > 0.00000001:
                         from database.models import Position as PositionModel
@@ -156,7 +167,8 @@ class RealTrader:
                         "exchange_order_id": order.get("id"),
                     })
                 finally:
-                    db.close()
+                    if close_db:
+                        db.close()
 
                 logger.info(f"💚 [REAL] VENTA PARCIAL {pair} @ {filled_price:.2f}€ | PnL={pnl_eur:+.2f}€ | restante={remaining_crypto:.8f} | {reason}")
                 return {
@@ -181,7 +193,7 @@ class RealTrader:
                 await asyncio.sleep(self.RETRY_DELAY)
         return None
 
-    async def execute_sell(self, pair: str, position, current_price: float, reason: str) -> dict:
+    async def execute_sell(self, pair: str, position, current_price: float, reason: str, db=None) -> dict:
         self._check_circuit_breaker()
         
         if isinstance(position, dict):
@@ -206,7 +218,12 @@ class RealTrader:
                 fee_eur = order.get("fee", {}).get("cost", gross_eur * config.exchange.taker_fee)
                 pnl_eur = (gross_eur - fee_eur) - amount_eur_invested
 
-                db = SessionLocal()
+                if db is None:
+                    db = SessionLocal()
+                    close_db = True
+                else:
+                    close_db = False
+
                 try:
                     crud.close_position(db, position_id, filled_price, reason)
                     trade = crud.create_trade(db, {
@@ -221,7 +238,8 @@ class RealTrader:
                         "exchange_order_id": order.get("id"),
                     })
                 finally:
-                    db.close()
+                    if close_db:
+                        db.close()
 
                 logger.info(f"{'💚' if pnl_eur >= 0 else '🔴'} [REAL] VENTA {pair} @ {filled_price:.2f}€ | PnL={pnl_eur:+.2f}€ | {reason}")
                 return {

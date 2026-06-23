@@ -15,7 +15,7 @@ class DemoTrader:
         self.portfolio = portfolio
         self.risk = risk_manager
 
-    async def execute_buy(self, pair: str, amount_eur: float, current_price: float, atr: float) -> dict:
+    async def execute_buy(self, pair: str, amount_eur: float, current_price: float, atr: float, db=None) -> dict:
         """Simula una compra. Retorna el dict del trade creado."""
         fee = amount_eur * config.exchange.taker_fee
         net_eur = amount_eur - fee
@@ -33,7 +33,12 @@ class DemoTrader:
             "entry_timestamp": datetime.utcnow().isoformat() + "Z",
         })
 
-        db = SessionLocal()
+        if db is None:
+            db = SessionLocal()
+            close_db = True
+        else:
+            close_db = False
+
         try:
             position = crud.create_position(db, {
                 "pair": pair,
@@ -54,7 +59,8 @@ class DemoTrader:
                 "mode": "demo",
             })
         finally:
-            db.close()
+            if close_db:
+                db.close()
 
         result = {
             "trade_id": trade.id,
@@ -74,7 +80,7 @@ class DemoTrader:
         logger.info(f"🟢 [DEMO] COMPRA {pair}: {amount_crypto:.8f} @ {current_price:.2f}€ (inv={amount_eur:.2f}€, SL={stop_loss:.2f}, TP={take_profit:.2f})")
         return result
 
-    async def execute_partial_sell(self, pair: str, position, current_price: float, fraction: float, reason: str) -> dict:
+    async def execute_partial_sell(self, pair: str, position, current_price: float, fraction: float, reason: str, db=None) -> dict:
         """Vende una fracción de la posición. fraction=0.5 = vender 50%."""
         if isinstance(position, dict):
             amount_crypto = position["amount_crypto"] * fraction
@@ -112,7 +118,12 @@ class DemoTrader:
         else:
             await self.portfolio.remove_position(pair)
 
-        db = SessionLocal()
+        if db is None:
+            db = SessionLocal()
+            close_db = True
+        else:
+            close_db = False
+
         try:
             trade = crud.create_trade(db, {
                 "position_id": position_id,
@@ -125,7 +136,8 @@ class DemoTrader:
                 "mode": "demo",
             })
         finally:
-            db.close()
+            if close_db:
+                db.close()
 
         emoji = "🔴" if pnl_eur < 0 else "💚"
         logger.info(f"{emoji} [DEMO] VENTA PARCIAL {pair}: {amount_crypto:.8f} @ {current_price:.2f}€ | PnL={pnl_eur:+.2f}€ | restante={remaining_crypto:.8f} | razón={reason}")
@@ -147,7 +159,7 @@ class DemoTrader:
             "mode": "demo",
         }
 
-    async def execute_sell(self, pair: str, position, current_price: float, reason: str) -> dict:
+    async def execute_sell(self, pair: str, position, current_price: float, reason: str, db=None) -> dict:
         """Simula una venta/cierre de posición."""
         if isinstance(position, dict):
             amount_crypto = position["amount_crypto"]
@@ -170,7 +182,12 @@ class DemoTrader:
         await self.portfolio.update_balance(net_eur)
         await self.portfolio.remove_position(pair)
 
-        db = SessionLocal()
+        if db is None:
+            db = SessionLocal()
+            close_db = True
+        else:
+            close_db = False
+
         try:
             closed = crud.close_position(db, position_id, current_price, reason)
             trade = crud.create_trade(db, {
@@ -184,7 +201,8 @@ class DemoTrader:
                 "mode": "demo",
             })
         finally:
-            db.close()
+            if close_db:
+                db.close()
 
         emoji = "🔴" if pnl_eur < 0 else "💚"
         logger.info(f"{emoji} [DEMO] VENTA {pair}: {amount_crypto:.8f} @ {current_price:.2f}€ | PnL={pnl_eur:+.2f}€ | razón={reason}")
