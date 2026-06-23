@@ -344,9 +344,7 @@ class TradingEngine:
                 atr=atr, candles_with_indicators=candles_with_indicators
             )
             if should_sell:
-                if take_partial and not should_sell:
-                    pass
-                trade = await self.trader.execute_sell(pair, open_position, current_price, sell_reason, db=db)
+                trade = await self.trader.execute_sell(pair, open_position_dict, current_price, sell_reason, db=db)
                 if trade:
                     executed = True
                     await self.redis.publish("bot:live_updates", _json_dumps({"type": "trade_executed", "data": trade}))
@@ -355,7 +353,7 @@ class TradingEngine:
                 pnl_pct = (current_price - open_position_dict["entry_price"]) / open_position_dict["entry_price"] * 100
                 logger.info(f"  ↳ Ganancia parcial: {pnl_pct:.2f}% — tomando {config.risk.partial_exit_pct:.0%} en {pair}")
                 trade = await self.trader.execute_partial_sell(
-                    pair, open_position, current_price,
+                    pair, open_position_dict, current_price,
                     config.risk.partial_exit_pct,
                     f"partial_profit_{config.risk.partial_exit_r_multiple:.1f}R",
                     db=db

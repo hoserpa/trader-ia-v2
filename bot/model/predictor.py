@@ -39,6 +39,9 @@ class ModelPredictor:
                     self.metadata = json.load(f)
                 self.feature_names = self.metadata.get("feature_cols", self.metadata.get("feature_names", []))
 
+            file_mtime = int(os.path.getmtime(config.model.model_path) * 1_000_000)
+            self.metadata["_file_mtime"] = file_mtime
+
             logger.info(f"Modelo cargado. Entrenado: {self.metadata.get('trained_at', 'desconocido')}")
             logger.info(f"Métricas validación: {self.metadata.get('validation_metrics', {})}")
             logger.info(f"Feature names: {self.feature_names[:5]}...")

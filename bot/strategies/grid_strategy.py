@@ -63,11 +63,22 @@ class GridStrategy:
         logger.info("Grid detenido")
 
     async def check_orders(self):
-        """Verifica fills y recoloca órdenes en todos los pares."""
+        """Verifica fills, recoloca órdenes e inicializa pares pendientes."""
         if not self._running or not config.grid.enabled:
             return
 
-        for pair in list(self._state.keys()):
+        port_state = self.portfolio.get()
+        total_balance = port_state.get("total_value_eur", port_state.get("balance_eur", config.trading.demo_initial_balance))
+        capital_per_pair = total_balance * config.grid.capital_pct / max(len(config.grid.pairs), 1)
+
+        for pair in config.grid.pairs:
+            if pair not in self._state:
+                price = await self._get_price(pair)
+                if price:
+                    await self._init_pair_grid(pair, price, capital_per_pair)
+                    logger.info(f"Grid {pair}: inicializado tardíamente @ {price:.2f}€")
+                continue
+
             try:
                 current_price = await self._get_price(pair)
                 if not current_price:
