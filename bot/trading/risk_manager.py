@@ -231,16 +231,12 @@ class RiskManager:
         if "ema_21" not in candles.columns or pd.isna(last.get("ema_21")):
             return True, "sin EMA disponible"
 
-        price = last["close"]
-        ema21 = last["ema_21"]
         macd_hist = last.get("macd_hist")
         bb_pct = last.get("bb_pct_b")
 
         if direction == "BUY":
             if rsi > config.risk.rsi_overbought:
                 return False, f"RSI={rsi:.1f} > {config.risk.rsi_overbought} (sobrecompra)"
-            if price < ema21:
-                return False, f"precio={price:.2f} < EMA21={ema21:.2f} (downtrend)"
             if macd_hist is not None and not pd.isna(macd_hist) and macd_hist <= 0:
                 return False, f"MACD hist={macd_hist:.4f} <= 0 (sin momentum alcista)"
             if bb_pct is not None and not pd.isna(bb_pct) and bb_pct > 0.95:
@@ -250,8 +246,6 @@ class RiskManager:
         if direction == "SELL":
             if rsi < config.risk.rsi_oversold:
                 return False, f"RSI={rsi:.1f} < {config.risk.rsi_oversold} (sobreventa)"
-            if price > ema21:
-                return False, f"precio={price:.2f} > EMA21={ema21:.2f} (uptrend)"
             if macd_hist is not None and not pd.isna(macd_hist) and macd_hist >= 0:
                 return False, f"MACD hist={macd_hist:.4f} >= 0 (sin momentum bajista)"
             if bb_pct is not None and not pd.isna(bb_pct) and bb_pct < 0.05:
