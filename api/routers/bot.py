@@ -17,6 +17,14 @@ async def bot_status():
     return json.loads(raw) if raw else {"status": "unknown"}
 
 
+@router.get("/grid")
+async def grid_status():
+    from api.main import _trading_engine
+    if _trading_engine and hasattr(_trading_engine, 'grid_strategy'):
+        return _trading_engine.grid_strategy.get_state()
+    return {"enabled": False}
+
+
 @router.get("/config")
 async def bot_config():
     from config import config

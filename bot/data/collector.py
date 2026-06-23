@@ -26,6 +26,7 @@ class DataCollector:
     def __init__(self, redis_client: aioredis.Redis):
         self.redis = redis_client
         self.exchange = self._build_exchange()
+        self._futures_exchange = None
         self._running = False
         self._reconnect_delay = 5
         self._max_reconnect_delay = 300
@@ -45,6 +46,36 @@ class DataCollector:
 
         exchange = getattr(ccxt, exchange_id)(params)
         return exchange
+
+    def _build_futures_exchange(self):
+        """Construye una instancia ccxt para futuros USDⓈ-M."""
+        exchange_id = config.exchange.name.lower()
+        params = {
+            "enableRateLimit": True,
+            "options": {
+                "defaultType": "future",
+                "defaultSubType": "linear",
+            },
+        }
+        if config.trading.mode == "real":
+            params["apiKey"] = config.exchange.api_key
+            params["secret"] = config.exchange.api_secret
+        else:
+            params["apiKey"] = config.exchange.api_key or "demo"
+            params["secret"] = config.exchange.api_secret or "demo"
+
+        return getattr(ccxt, exchange_id)(params)
+
+    async def get_futures_exchange(self):
+        """Retorna (creando si es necesario) la instancia de futuros."""
+        if self._futures_exchange is None:
+            self._futures_exchange = self._build_futures_exchange()
+            try:
+                await self._futures_exchange.load_markets()
+                logger.info("Exchange de futuros inicializado")
+            except Exception as e:
+                logger.error(f"Error cargando mercados de futuros: {e}")
+        return self._futures_exchange
 
     async def start(self) -> None:
         self._running = True

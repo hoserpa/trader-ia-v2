@@ -14,6 +14,7 @@ createApp({
     const systemLogs = ref([]);
     const latestSignals = ref([]);
     const stats = ref({});
+    const gridState = ref({ enabled: false, running: false, pairs: {}, config: {} });
     const historyDays = ref(30);
     const logContainer = ref(null);
     let portfolioChart = null;
@@ -43,7 +44,7 @@ createApp({
 
     const loadAll = async () => {
       try {
-        const [portRes, tradesRes, statsRes, sigRes, configRes, logsRes, pricesRes] = await Promise.all([
+        const [portRes, tradesRes, statsRes, sigRes, configRes, logsRes, pricesRes, gridRes] = await Promise.all([
           api.get('/portfolio'),
           api.get('/trades?limit=50'),
           api.get('/trades/stats'),
@@ -51,6 +52,7 @@ createApp({
           api.get('/bot/config'),
           api.get('/logs?limit=100'),
           api.get('/market/prices'),
+          api.get('/bot/grid'),
         ]);
         portfolio.value = portRes.data;
         trades.value = tradesRes.data;
@@ -59,6 +61,7 @@ createApp({
         botConfig.value = configRes.data;
         systemLogs.value = logsRes.data;
         prices.value = pricesRes.data;
+        if (gridRes.data.enabled) gridState.value = gridRes.data;
       } catch (e) { console.error('Error cargando datos:', e); }
     };
 
@@ -169,7 +172,7 @@ createApp({
 
     return {
       portfolio, botStatus, botConfig, prices, trades, systemLogs,
-      latestSignals, stats, historyDays, logContainer, openPositions,
+      latestSignals, stats, gridState, historyDays, logContainer, openPositions,
       formatPrice, formatDate, modeClass, statusClass, statusTextClass, signalClass,
       loadPortfolioHistory, resetPortfolio,
     };

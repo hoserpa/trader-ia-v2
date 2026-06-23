@@ -83,6 +83,32 @@
     </div>
   </section>
 
+  <section v-if="gridState.enabled" class="grid-section">
+    <h2>Grid Trading <span class="badge" :class="gridState.running ? 'badge-buy' : 'badge-sell'">{{ gridState.running ? 'ACTIVO' : 'DETENIDO' }}</span></h2>
+    <div class="grid-summary">
+      <div class="grid-pair-block" v-for="(g, pair) in gridState.pairs" :key="pair">
+        <div class="grid-pair-header">
+          <strong>{{ pair }}</strong>
+          <span class="grid-pnl" :class="g.pnl_eur >= 0 ? 'positive' : 'negative'">
+            {{ g.pnl_eur >= 0 ? '+' : '' }}{{ formatPrice(g.pnl_eur) }}€ ({{ g.pnl_pct?.toFixed(2) }}%)
+          </span>
+        </div>
+        <div class="grid-info">
+          <div class="grid-info-row"><span>Precio actual</span><strong>{{ formatPrice(g.current_price) }}€</strong></div>
+          <div class="grid-info-row"><span>Rango</span>{{ formatPrice(g.range_lower) }} — {{ formatPrice(g.range_upper) }}€</div>
+          <div class="grid-info-row"><span>Spread</span>{{ g.spacing_pct?.toFixed(2) }}%</div>
+          <div class="grid-info-row"><span>Apalancamiento</span>{{ g.leverage }}x</div>
+          <div class="grid-info-row"><span>Órdenes</span>{{ g.open_orders }} activas / {{ g.filled_orders }} llenadas</div>
+          <div class="grid-info-row"><span>Ciclos completos</span>{{ g.total_grid_trades }}</div>
+          <div class="grid-info-row" v-if="g.funding_paid"><span>Funding pagado</span>{{ formatPrice(g.funding_paid) }}€</div>
+        </div>
+      </div>
+    </div>
+    <div class="grid-config" v-if="gridState.config">
+      <span class="config-label">Config: {{ gridState.config.levels_per_pair }} niveles, {{ (gridState.config.range_pct * 100).toFixed(0) }}% rango, {{ (gridState.config.capital_pct * 100).toFixed(0) }}% capital</span>
+    </div>
+  </section>
+
   <section v-if="openPositions.length">
     <h2>Posiciones abiertas</h2>
     <div class="table-wrapper">

@@ -73,6 +73,18 @@ h2 { font-size: 1rem; font-weight: 600; margin-bottom: 12px; width: 100%; }
 .log-badge.log-warning { background: #5f4a1e; color: #fbbf24; }
 .log-msg { color: #9ca3af; flex: 1; line-height: 1.4; word-break: break-word; }
 
+.grid-section { background: #1c1f26; padding: 16px; border-radius: 12px; margin-bottom: 20px; }
+.grid-section h2 .badge { margin-left: 8px; vertical-align: middle; }
+.grid-summary { display: grid; grid-template-columns: 1fr; gap: 12px; }
+.grid-pair-block { background: #2d333b; padding: 14px; border-radius: 10px; }
+.grid-pair-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.grid-pair-header strong { font-size: 0.95rem; }
+.grid-pnl { font-size: 0.9rem; font-weight: 600; }
+.grid-info { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; }
+.grid-info-row { font-size: 0.75rem; color: #9ca3af; display: flex; justify-content: space-between; }
+.grid-info-row strong { color: #e7e9ea; }
+.grid-config { margin-top: 12px; padding-top: 12px; border-top: 1px solid #2d333b; font-size: 0.7rem; color: #6b7280; }
+
 @media (min-width: 768px) {
   #app { padding: 20px; }
   .topbar { padding: 12px 20px; margin-bottom: 20px; }

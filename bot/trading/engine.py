@@ -29,6 +29,7 @@ from trading.risk_manager import RiskManager
 from trading.portfolio import Portfolio
 from trading.demo_trader import DemoTrader
 from trading.real_trader import RealTrader
+from strategies.grid_strategy import GridStrategy
 from notifications.telegram import TelegramNotifier
 from database.crud import (
     save_decision, save_portfolio_snapshot, get_open_position_by_pair, get_open_position_by_pair_dict, get_open_positions
@@ -84,6 +85,7 @@ class TradingEngine:
         self.risk_manager = RiskManager()
         self.portfolio = Portfolio(redis_client)
         self.telegram = TelegramNotifier()
+        self.grid_strategy = GridStrategy(redis_client, self.portfolio)
         self._running = False
         self._status = "stopped"
         self._consecutive_errors = 0
@@ -154,10 +156,14 @@ class TradingEngine:
 
         self._lock_heartbeat_task = asyncio.create_task(_lock_heartbeat())
 
-        await asyncio.gather(
-            self.collector.start(),
-            self._analysis_loop(),
-        )
+        if config.grid.enabled:
+            await self.grid_strategy.start()
+            logger.info("Grid trading iniciado")
+
+        tasks = [self.collector.start(), self._analysis_loop()]
+        if config.grid.enabled:
+            tasks.append(self._grid_loop())
+        await asyncio.gather(*tasks)
 
     async def stop(self) -> None:
         self._running = False
@@ -165,6 +171,8 @@ class TradingEngine:
             self._lock_heartbeat_task.cancel()
         self._status = "stopped"
         await self.collector.stop()
+        if config.grid.enabled:
+            await self.grid_strategy.stop()
         await self.telegram.notify_bot_stopped()
         await self._publish_status()
         await self._release_instance_lock()
@@ -219,6 +227,16 @@ class TradingEngine:
             sleep_time = max(0, config.trading.analysis_interval - elapsed)
             logger.debug(f"Ciclo completado en {elapsed:.1f}s. Siguiente en {sleep_time:.0f}s.")
             await asyncio.sleep(sleep_time)
+
+    async def _grid_loop(self) -> None:
+        """Ciclo periódico de verificación de órdenes grid."""
+        await asyncio.sleep(10)
+        while self._running and config.grid.enabled:
+            try:
+                await self.grid_strategy.check_orders()
+            except Exception as e:
+                logger.error(f"Error en grid loop: {e}")
+            await asyncio.sleep(config.grid.poll_interval)
 
     async def _check_drawdown(self) -> None:
         """Notifica si el drawdown supera el umbral."""

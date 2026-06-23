@@ -97,6 +97,19 @@ class RiskConfig:
 
 
 @dataclass
+class GridConfig:
+    enabled: bool = field(default_factory=lambda: os.getenv("GRID_ENABLED", "false").lower() == "true")
+    pairs: list = field(default_factory=lambda: os.getenv("GRID_PAIRS", "BTC/EUR,ETH/EUR,SOL/EUR").split(","))
+    leverage: int = field(default_factory=lambda: int(os.getenv("GRID_LEVERAGE", "2")))
+    levels_per_pair: int = field(default_factory=lambda: int(os.getenv("GRID_LEVELS", "20")))
+    capital_pct: float = field(default_factory=lambda: float(os.getenv("GRID_CAPITAL_PCT", "0.7")))
+    range_pct: float = field(default_factory=lambda: float(os.getenv("GRID_RANGE_PCT", "0.10")))
+    rebalance_threshold: float = field(default_factory=lambda: float(os.getenv("GRID_REBALANCE_THRESHOLD", "0.15")))
+    stop_loss_pct: float = field(default_factory=lambda: float(os.getenv("GRID_STOP_LOSS_PCT", "0.10")))
+    poll_interval: int = field(default_factory=lambda: int(os.getenv("GRID_POLL_INTERVAL", "30")))
+
+
+@dataclass
 class DatabaseConfig:
     sqlite_path: str = field(default_factory=lambda: os.getenv("SQLITE_DB_PATH", "/app/data/crypto_trader.db"))
     redis_host: str = field(default_factory=lambda: os.getenv("REDIS_HOST", "redis"))
@@ -138,6 +151,7 @@ class AppConfig:
     exchange: ExchangeConfig = field(default_factory=ExchangeConfig)
     trading: TradingConfig = field(default_factory=TradingConfig)
     risk: RiskConfig = field(default_factory=RiskConfig)
+    grid: GridConfig = field(default_factory=GridConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
