@@ -1,6 +1,6 @@
 """Inicialización de la base de datos SQLite."""
 import os
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
 from .models import Base
 from config import config
@@ -19,6 +19,16 @@ def get_engine():
 def init_db() -> sessionmaker:
     engine = get_engine()
     Base.metadata.create_all(engine)
+
+    with engine.connect() as conn:
+        conn.execute(text("PRAGMA journal_mode=WAL"))
+        try:
+            conn.execute(text("ALTER TABLE positions ADD COLUMN position_type VARCHAR(5) DEFAULT 'long'"))
+            logger.info("Migración: columna position_type añadida a positions")
+        except Exception:
+            pass
+        conn.commit()
+
     logger.info(f"Base de datos inicializada en {config.database.sqlite_path}")
     return sessionmaker(bind=engine, autocommit=False, autoflush=False)
 

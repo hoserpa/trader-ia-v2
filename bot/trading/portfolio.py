@@ -83,17 +83,25 @@ class Portfolio:
         return self._state.get("positions", {}).get(pair)
 
     async def update_valuations(self, current_prices: dict) -> dict:
-        """Recalcula el valor total del portafolio con precios actuales."""
+        """Recalcula el valor total del portafolio con precios actuales.
+        Soporta posiciones long (PnL = current - invested) y short (PnL = invested - current).
+        """
+        total = self._state["balance_eur"]
         crypto_value = 0.0
         for pair, pos in self._state["positions"].items():
             price = current_prices.get(pair, pos.get("entry_price", 0))
             pos["current_price"] = price
             pos["current_value_eur"] = pos["amount_crypto"] * price
-            pos["pnl_eur"] = pos["current_value_eur"] - pos["amount_eur_invested"]
+            pos_type = pos.get("position_type", "long")
+            if pos_type == "short":
+                pos["pnl_eur"] = pos["amount_eur_invested"] - pos["current_value_eur"]
+                total -= pos["current_value_eur"]
+            else:
+                pos["pnl_eur"] = pos["current_value_eur"] - pos["amount_eur_invested"]
+                crypto_value += pos["current_value_eur"]
+                total += pos["current_value_eur"]
             pos["pnl_pct"] = pos["pnl_eur"] / pos["amount_eur_invested"] * 100 if pos["amount_eur_invested"] > 0 else 0
-            crypto_value += pos["current_value_eur"]
 
-        total = self._state["balance_eur"] + crypto_value
         initial = self._state["initial_balance_eur"]
         self._state["total_value_eur"] = round(total, 4)
         self._state["total_pnl_eur"] = round(total - initial, 4)

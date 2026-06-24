@@ -113,10 +113,11 @@
     <h2>Posiciones abiertas</h2>
     <div class="table-wrapper">
       <table class="data-table">
-        <thead><tr><th>Par</th><th>Entrada</th><th>Actual</th><th>PnL</th><th>SL</th><th>TP</th></tr></thead>
+        <thead><tr><th>Par</th><th>Tipo</th><th>Entrada</th><th>Actual</th><th>PnL</th><th>SL</th><th>TP</th></tr></thead>
         <tbody>
           <tr v-for="(pos, pair) in portfolio.positions" :key="pair">
             <td>{{ pair }}</td>
+            <td><span class="badge" :class="(pos.position_type || 'long') === 'long' ? 'badge-buy' : 'badge-sell'">{{ (pos.position_type || 'long').toUpperCase() }}</span></td>
             <td>{{ formatPrice(pos.entry_price) }}€</td>
             <td>{{ formatPrice(pos.current_price) }}€</td>
             <td :class="pos.pnl_eur >= 0 ? 'positive' : 'negative'">{{ pos.pnl_eur >= 0 ? '+' : '' }}{{ formatPrice(pos.pnl_eur) }}€ ({{ pos.pnl_pct?.toFixed(1) }}%)</td>
@@ -137,7 +138,7 @@
           <tr v-for="t in trades" :key="t.id">
             <td>{{ formatDate(t.timestamp) }}</td>
             <td>{{ t.pair }}</td>
-            <td><span class="badge" :class="t.side === 'buy' ? 'badge-buy' : 'badge-sell'">{{ t.side.toUpperCase() }}</span></td>
+            <td><span class="badge" :class="t.side === 'buy' || t.side === 'buy_to_close' ? 'badge-buy' : 'badge-sell'">{{ t.side === 'buy_to_close' ? 'COVER' : t.side.toUpperCase() }}</span></td>
             <td>{{ formatPrice(t.price) }}€</td>
             <td>{{ formatPrice(t.amount_eur) }}€</td>
             <td>{{ formatPrice(t.fee_eur) }}€</td>

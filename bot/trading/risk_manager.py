@@ -88,11 +88,75 @@ class RiskManager:
             if not passed:
                 return False, f"Filtro técnico rechazó BUY: {reason}", 0.0
 
-        amount_eur = self.calculate_position_size(total_value, atr, current_price, balance_eur, signal)
+            amount_eur = self.calculate_position_size(total_value, atr, current_price, balance_eur, signal)
         if amount_eur < config.risk.min_trade_eur:
             return False, f"Tamaño de posición calculado demasiado pequeño: {amount_eur:.2f}€", 0.0
 
         logger.info(f"✅ Risk OK para compra {pair}: {amount_eur:.2f}€ | confianza={signal['confidence']:.2%}")
+        return True, "OK", amount_eur
+
+    def can_short(
+        self,
+        pair: str,
+        signal: dict,
+        portfolio: dict,
+        current_price: float,
+        atr: float,
+        candles_with_indicators=None,
+    ) -> tuple[bool, str, float]:
+        """Evalúa si se puede abrir una posición corta.
+        Retorna: (puede_vender_corto, razón, importe_eur_a_invertir)
+        """
+        if signal.get("signal") != "SELL":
+            return False, f"Señal no es SELL: {signal.get('signal')}", 0.0
+
+        if signal.get("confidence", 0) < config.risk.min_confidence_threshold:
+            return False, f"Confianza insuficiente: {signal['confidence']:.2%} < {config.risk.min_confidence_threshold:.2%}", 0.0
+
+        db = SessionLocal()
+        try:
+            open_positions = get_open_positions(db)
+        finally:
+            db.close()
+
+        pairs_with_positions = [p.pair for p in open_positions]
+        if pair in pairs_with_positions:
+            return False, f"Ya existe posición abierta en {pair}", 0.0
+
+        if len(open_positions) >= config.risk.max_open_positions:
+            return False, f"Máximo de posiciones abiertas alcanzado ({config.risk.max_open_positions})", 0.0
+
+        db = SessionLocal()
+        try:
+            trades_today = count_trades_today(db)
+        finally:
+            db.close()
+
+        if trades_today >= config.risk.max_daily_trades:
+            return False, f"Máximo de trades diarios alcanzado ({config.risk.max_daily_trades})", 0.0
+
+        atr_pct = atr / current_price if current_price > 0 else 0
+        if atr_pct > config.risk.high_volatility_atr_threshold:
+            return False, f"Alta volatilidad (ATR%={atr_pct:.2%} > {config.risk.high_volatility_atr_threshold:.2%})", 0.0
+
+        if atr_pct < 0.002:
+            return False, f"Volatilidad muy baja (ATR%={atr_pct:.2%} < 0.2%), sin señal", 0.0
+
+        balance_eur = portfolio.get("balance_eur", 0)
+        if balance_eur < config.risk.min_trade_eur:
+            return False, f"Balance EUR insuficiente: {balance_eur:.2f} < {config.risk.min_trade_eur}", 0.0
+
+        total_value = portfolio.get("total_value_eur", balance_eur)
+        if candles_with_indicators is not None:
+            passed, reason = self._check_technical_filters("SELL", candles_with_indicators)
+            if not passed:
+                return False, f"Filtro técnico rechazó SELL: {reason}", 0.0
+
+        amount_eur = self.calculate_position_size(total_value, atr, current_price, balance_eur, signal)
+        if amount_eur < config.risk.min_trade_eur:
+            return False, f"Tamaño de posición calculado demasiado pequeño: {amount_eur:.2f}€", 0.0
+
+        logger.info(f"✅ Risk OK para venta corta {pair}: {amount_eur:.2f}€ | confianza={signal['confidence']:.2%}")
         return True, "OK", amount_eur
 
     def can_sell(
@@ -104,8 +168,8 @@ class RiskManager:
         atr: float = None,
         candles_with_indicators=None,
     ) -> tuple[bool, str]:
-        """Evalúa si se debe cerrar una posición.
-        Retorna: (debe_vender, razón)
+        """Evalúa si se debe cerrar una posición (long o short).
+        Retorna: (debe_cerrar, razón)
         """
         if current_price <= 0 or position.get("entry_price", 0) <= 0:
             return False, "precio inválido"
@@ -114,63 +178,91 @@ class RiskManager:
         sl_price = position.get("stop_loss_price")
         tp_price = position.get("take_profit_price")
         entry_timestamp = position.get("entry_timestamp")
+        position_type = position.get("position_type", "long")
 
-        pnl_pct = (current_price - entry_price) / entry_price * 100
-        atr_used = atr or 0
+        if position_type == "short":
+            pnl_pct = (entry_price - current_price) / entry_price * 100
+            if sl_price and current_price >= sl_price:
+                return True, f"short_stop_loss (precio={current_price:.2f} >= SL={sl_price:.2f}, pérdida={pnl_pct:.2f}%)"
+            if tp_price and current_price <= tp_price:
+                return True, f"short_take_profit (precio={current_price:.2f} <= TP={tp_price:.2f}, ganancia={pnl_pct:.2f}%)"
+            trailing_stop = position.get("trailing_stop_price")
+            if trailing_stop and current_price >= trailing_stop:
+                return True, f"short_trailing_stop (precio={current_price:.2f} >= trailing={trailing_stop:.2f}, ganancia={pnl_pct:.2f}%)"
+            hours_open = self._hours_since(entry_timestamp)
+            if hours_open > config.risk.max_position_hours:
+                return True, f"force_close_short (horas={hours_open:.1f}h, PnL={pnl_pct:.2f}%)"
+            direction_to_close = "BUY"
+        else:
+            pnl_pct = (current_price - entry_price) / entry_price * 100
+            if sl_price and current_price <= sl_price:
+                return True, f"stop_loss (precio={current_price:.2f} <= SL={sl_price:.2f}, pérdida={pnl_pct:.2f}%)"
+            if tp_price and current_price >= tp_price:
+                return True, f"take_profit (precio={current_price:.2f} >= TP={tp_price:.2f}, ganancia={pnl_pct:.2f}%)"
+            trailing_stop = position.get("trailing_stop_price")
+            if trailing_stop and current_price <= trailing_stop:
+                return True, f"trailing_stop (precio={current_price:.2f} <= trailing={trailing_stop:.2f}, ganancia={pnl_pct:.2f}%)"
+            hours_open = self._hours_since(entry_timestamp)
+            if hours_open > config.risk.max_position_hours:
+                return True, f"force_close (horas={hours_open:.1f} > max={config.risk.max_position_hours}h, PnL={pnl_pct:.2f}%)"
+            direction_to_close = "SELL"
 
-        if sl_price and current_price <= sl_price:
-            return True, f"stop_loss (precio={current_price:.2f} <= SL={sl_price:.2f}, pérdida={pnl_pct:.2f}%)"
-
-        if tp_price and current_price >= tp_price:
-            return True, f"take_profit (precio={current_price:.2f} >= TP={tp_price:.2f}, ganancia={pnl_pct:.2f}%)"
-
-        trailing_stop = position.get("trailing_stop_price")
-        if trailing_stop and current_price <= trailing_stop:
-            return True, f"trailing_stop (precio={current_price:.2f} <= trailing={trailing_stop:.2f}, ganancia={pnl_pct:.2f}%)"
-
-        hours_open = self._hours_since(entry_timestamp)
-        if hours_open > config.risk.max_position_hours:
-            return True, f"force_close (horas={hours_open:.1f} > max={config.risk.max_position_hours}h, PnL={pnl_pct:.2f}%)"
-
-        if signal.get("signal") == "SELL" and signal.get("confidence", 0) >= config.risk.min_confidence_threshold:
-            return True, f"model_signal (SELL con confianza={signal['confidence']:.2%})"
+        if signal.get("signal") == direction_to_close and signal.get("confidence", 0) >= config.risk.min_confidence_threshold:
+            return True, f"model_signal ({direction_to_close} con confianza={signal['confidence']:.2%})"
 
         if signal.get("signal") == "HOLD" and signal.get("confidence", 0) > 0.95:
-            confidence = signal.get("confidence", 0)
             if candles_with_indicators is not None:
-                passed, reason = self._check_technical_filters("SELL", candles_with_indicators)
+                passed, reason = self._check_technical_filters(direction_to_close, candles_with_indicators)
                 if passed:
-                    return True, f"model_hold_with_technical_sell (confianza HOLD={confidence:.2%}, técnicos confirman SELL)"
+                    return True, f"model_hold_with_technical_{direction_to_close.lower()} (confianza HOLD={signal['confidence']:.2%}, técnicos confirman {direction_to_close})"
 
         return False, "mantener posición"
 
-    def calculate_trailing_stop(self, entry_price: float, current_price: float, atr: float) -> Optional[float]:
-        """Calcula trailing stop si la posición está en ganancia suficiente."""
-        pnl_pct = (current_price - entry_price) / entry_price
+    def calculate_trailing_stop(self, entry_price: float, current_price: float, atr: float, position_type: str = "long") -> Optional[float]:
+        """Calcula trailing stop si la posición está en ganancia suficiente.
+        Para longs: trail desde el precio más alto, stop = high - distancia.
+        Para shorts: trail desde el precio más bajo, stop = low + distancia.
+        """
+        if position_type == "short":
+            pnl_pct = (entry_price - current_price) / entry_price
+        else:
+            pnl_pct = (current_price - entry_price) / entry_price
+
         activation = config.risk.trailing_stop_activation_pct
 
         if pnl_pct >= activation and atr > 0:
             trail_distance = atr * config.risk.trailing_stop_distance_atr
-            proposed = current_price - trail_distance
+            if position_type == "short":
+                proposed = current_price + trail_distance
+            else:
+                proposed = current_price - trail_distance
             return round(proposed, 8)
 
         return None
 
     def should_take_partial_profit(
-        self, entry_price: float, current_price: float, atr: float
+        self, entry_price: float, current_price: float, atr: float, position_type: str = "long"
     ) -> tuple[bool, float]:
         """Determina si se debe tomar ganancia parcial.
+        Para longs: precio sube → ganancia.
+        Para shorts: precio baja → ganancia.
         Retorna: (tomar_ganancia, precio_objetivo)
         """
         risk_per_unit = atr * config.risk.stop_loss_atr_multiplier
         if risk_per_unit <= 0:
             return False, 0.0
 
-        r_multiple = (current_price - entry_price) / risk_per_unit
+        if position_type == "short":
+            r_multiple = (entry_price - current_price) / risk_per_unit
+        else:
+            r_multiple = (current_price - entry_price) / risk_per_unit
         target_r = config.risk.partial_exit_r_multiple
 
         if r_multiple >= target_r:
-            target_price = entry_price + (risk_per_unit * target_r)
+            if position_type == "short":
+                target_price = entry_price - (risk_per_unit * target_r)
+            else:
+                target_price = entry_price + (risk_per_unit * target_r)
             return True, round(target_price, 8)
 
         return False, 0.0
@@ -212,10 +304,14 @@ class RiskManager:
 
         return round(position_size, 2)
 
-    def calculate_stop_loss(self, entry_price: float, atr: float) -> float:
+    def calculate_stop_loss(self, entry_price: float, atr: float, position_type: str = "long") -> float:
+        if position_type == "short":
+            return round(entry_price + (atr * config.risk.stop_loss_atr_multiplier), 8)
         return round(entry_price - (atr * config.risk.stop_loss_atr_multiplier), 8)
 
-    def calculate_take_profit(self, entry_price: float, atr: float) -> float:
+    def calculate_take_profit(self, entry_price: float, atr: float, position_type: str = "long") -> float:
+        if position_type == "short":
+            return round(entry_price - (atr * config.risk.take_profit_atr_multiplier), 8)
         return round(entry_price + (atr * config.risk.take_profit_atr_multiplier), 8)
 
     def _check_technical_filters(self, direction: str, candles: "pd.DataFrame") -> tuple[bool, str]:

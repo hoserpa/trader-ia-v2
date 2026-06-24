@@ -90,6 +90,7 @@ def get_open_position_by_pair_dict(db: Session, pair: str) -> Optional[dict]:
             "take_profit_price": pos.take_profit_price,
             "amount_eur_invested": pos.amount_eur_invested,
             "entry_timestamp": pos.entry_timestamp.isoformat() + "Z" if pos.entry_timestamp else None,
+            "position_type": getattr(pos, "position_type", "long"),
         }
     return None
 
@@ -100,8 +101,13 @@ def close_position(db: Session, position_id: int, close_price: float, reason: st
     pos.close_price = close_price
     pos.close_timestamp = datetime.utcnow()
     pos.close_reason = reason
-    pos.pnl_eur = (close_price - pos.entry_price) * pos.amount_crypto
-    pos.pnl_pct = (close_price - pos.entry_price) / pos.entry_price * 100
+    pos_type = getattr(pos, "position_type", "long")
+    if pos_type == "short":
+        pos.pnl_eur = (pos.entry_price - close_price) * pos.amount_crypto
+        pos.pnl_pct = (pos.entry_price - close_price) / pos.entry_price * 100
+    else:
+        pos.pnl_eur = (close_price - pos.entry_price) * pos.amount_crypto
+        pos.pnl_pct = (close_price - pos.entry_price) / pos.entry_price * 100
     db.commit()
     return pos
 

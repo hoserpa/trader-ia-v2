@@ -326,17 +326,23 @@ class TradingEngine:
             if stored_trail is not None:
                 open_position_dict["trailing_stop_price"] = stored_trail
 
+            position_type = open_position_dict.get("position_type", "long")
+
             trailing_stop = self.risk_manager.calculate_trailing_stop(
-                open_position_dict["entry_price"], current_price, atr
+                open_position_dict["entry_price"], current_price, atr, position_type=position_type
             )
             if trailing_stop is not None:
-                if stored_trail is None or trailing_stop > stored_trail:
+                if position_type == "short":
+                    update_trail = stored_trail is None or trailing_stop < stored_trail
+                else:
+                    update_trail = stored_trail is None or trailing_stop > stored_trail
+                if update_trail:
                     open_position_dict["trailing_stop_price"] = trailing_stop
                     await self.portfolio.update_position_meta(pair, "trailing_stop_price", trailing_stop)
                     logger.info(f"  ↳ Trailing stop actualizado: {trailing_stop:.2f}€ (anterior: {stored_trail})")
 
             take_partial, target_price = self.risk_manager.should_take_partial_profit(
-                open_position_dict["entry_price"], current_price, atr
+                open_position_dict["entry_price"], current_price, atr, position_type=position_type
             )
 
             should_sell, sell_reason = self.risk_manager.can_sell(
@@ -344,20 +350,32 @@ class TradingEngine:
                 atr=atr, candles_with_indicators=candles_with_indicators
             )
             if should_sell:
-                trade = await self.trader.execute_sell(pair, open_position_dict, current_price, sell_reason, db=db)
+                if position_type == "short":
+                    trade = await self.trader.execute_buy_to_close(pair, open_position_dict, current_price, sell_reason, db=db)
+                else:
+                    trade = await self.trader.execute_sell(pair, open_position_dict, current_price, sell_reason, db=db)
                 if trade:
                     executed = True
                     await self.redis.publish("bot:live_updates", _json_dumps({"type": "trade_executed", "data": trade}))
                     await self.telegram.notify_position_closed(trade, trade.get("pnl_eur", 0), open_position_dict)
             elif take_partial:
-                pnl_pct = (current_price - open_position_dict["entry_price"]) / open_position_dict["entry_price"] * 100
-                logger.info(f"  ↳ Ganancia parcial: {pnl_pct:.2f}% — tomando {config.risk.partial_exit_pct:.0%} en {pair}")
-                trade = await self.trader.execute_partial_sell(
-                    pair, open_position_dict, current_price,
-                    config.risk.partial_exit_pct,
-                    f"partial_profit_{config.risk.partial_exit_r_multiple:.1f}R",
-                    db=db
-                )
+                if position_type == "short":
+                    logger.info(f"  ↳ Ganancia parcial short: tomando {config.risk.partial_exit_pct:.0%} en {pair}")
+                    trade = await self.trader.execute_partial_buy_to_close(
+                        pair, open_position_dict, current_price,
+                        config.risk.partial_exit_pct,
+                        f"partial_profit_{config.risk.partial_exit_r_multiple:.1f}R",
+                        db=db
+                    )
+                else:
+                    pnl_pct = (current_price - open_position_dict["entry_price"]) / open_position_dict["entry_price"] * 100
+                    logger.info(f"  ↳ Ganancia parcial: {pnl_pct:.2f}% — tomando {config.risk.partial_exit_pct:.0%} en {pair}")
+                    trade = await self.trader.execute_partial_sell(
+                        pair, open_position_dict, current_price,
+                        config.risk.partial_exit_pct,
+                        f"partial_profit_{config.risk.partial_exit_r_multiple:.1f}R",
+                        db=db
+                    )
                 if trade:
                     await self.redis.publish("bot:live_updates", _json_dumps({"type": "trade_executed", "data": trade}))
         else:
@@ -365,21 +383,36 @@ class TradingEngine:
             prices = {p: await self.collector.get_current_price(p) or 0 for p in config.trading.pairs}
             portfolio_state = await self.portfolio.update_valuations(prices)
 
-            can_buy, reason, amount_eur = self.risk_manager.can_buy(
-                pair, signal, portfolio_state, current_price, atr,
-                candles_with_indicators=candles_with_indicators,
-            )
-            if can_buy:
-                trade = await self.trader.execute_buy(pair, amount_eur, current_price, atr, db=db)
-
-                if trade:
-                    executed = True
-                    await self.redis.publish("bot:live_updates", _json_dumps({"type": "trade_executed", "data": trade}))
-                    await self.telegram.notify_trade(trade, signal)
+            if signal.get("signal") == "SELL":
+                can_short, reason, amount_eur = self.risk_manager.can_short(
+                    pair, signal, portfolio_state, current_price, atr,
+                    candles_with_indicators=candles_with_indicators,
+                )
+                if can_short:
+                    trade = await self.trader.execute_short(pair, amount_eur, current_price, atr, db=db)
+                    if trade:
+                        executed = True
+                        await self.redis.publish("bot:live_updates", _json_dumps({"type": "trade_executed", "data": trade}))
+                        await self.telegram.notify_trade(trade, signal)
+                else:
+                    rejection_reason = reason
+                    if signal["signal"] != "HOLD":
+                        logger.info(f"  ↳ Señal SELL rechazada para short: {reason}")
             else:
-                rejection_reason = reason
-                if signal["signal"] != "HOLD":
-                    logger.info(f"  ↳ Señal {signal['signal']} rechazada: {reason}")
+                can_buy, reason, amount_eur = self.risk_manager.can_buy(
+                    pair, signal, portfolio_state, current_price, atr,
+                    candles_with_indicators=candles_with_indicators,
+                )
+                if can_buy:
+                    trade = await self.trader.execute_buy(pair, amount_eur, current_price, atr, db=db)
+                    if trade:
+                        executed = True
+                        await self.redis.publish("bot:live_updates", _json_dumps({"type": "trade_executed", "data": trade}))
+                        await self.telegram.notify_trade(trade, signal)
+                else:
+                    rejection_reason = reason
+                    if signal["signal"] != "HOLD":
+                        logger.info(f"  ↳ Señal {signal['signal']} rechazada: {reason}")
 
         save_decision(db, {
             "pair": pair,

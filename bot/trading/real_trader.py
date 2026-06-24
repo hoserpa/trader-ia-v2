@@ -263,5 +263,154 @@ class RealTrader:
                 await asyncio.sleep(self.RETRY_DELAY)
         return None
 
+    async def execute_short(self, pair: str, amount_eur: float, current_price: float, atr: float, db=None) -> dict:
+        """Ejecuta una venta corta real en el exchange."""
+        self._check_circuit_breaker()
+        amount_crypto = (amount_eur * (1 - config.exchange.taker_fee)) / current_price
+
+        for attempt in range(self.MAX_RETRIES):
+            try:
+                order = await self.exchange.create_market_sell_order(pair, amount_crypto)
+                self._consecutive_errors = 0
+                filled_price = order.get("average", current_price)
+                filled_amount = order.get("filled", amount_crypto)
+                fee_eur = order.get("fee", {}).get("cost", amount_eur * config.exchange.taker_fee)
+                gross_eur = filled_amount * filled_price
+
+                stop_loss = self.risk.calculate_stop_loss(filled_price, atr, position_type="short")
+                take_profit = self.risk.calculate_take_profit(filled_price, atr, position_type="short")
+
+                if db is None:
+                    db = SessionLocal()
+                    close_db = True
+                else:
+                    close_db = False
+
+                try:
+                    position = crud.create_position(db, {
+                        "pair": pair,
+                        "amount_crypto": filled_amount,
+                        "entry_price": filled_price,
+                        "stop_loss_price": stop_loss,
+                        "take_profit_price": take_profit,
+                        "amount_eur_invested": gross_eur - fee_eur,
+                        "position_type": "short",
+                    })
+                    trade = crud.create_trade(db, {
+                        "position_id": position.id,
+                        "pair": pair,
+                        "side": "short",
+                        "amount_crypto": filled_amount,
+                        "amount_eur": gross_eur,
+                        "price": filled_price,
+                        "fee_eur": fee_eur,
+                        "mode": "real",
+                        "exchange_order_id": order.get("id"),
+                    })
+                finally:
+                    if close_db:
+                        db.close()
+
+                logger.info(f"🔴 [REAL] SHORT {pair}: {filled_amount:.8f} @ {filled_price:.2f}€")
+                return {
+                    "trade_id": trade.id,
+                    "position_id": position.id,
+                    "pair": pair,
+                    "side": "short",
+                    "price": filled_price,
+                    "entry_price": filled_price,
+                    "amount_eur": gross_eur,
+                    "amount_crypto": filled_amount,
+                    "stop_loss": stop_loss,
+                    "take_profit": take_profit,
+                    "fee_eur": fee_eur,
+                    "mode": "real",
+                }
+
+            except ccxt.InsufficientFunds as e:
+                logger.error(f"Fondos insuficientes para short {pair}: {e}")
+                return None
+            except Exception as e:
+                self._consecutive_errors += 1
+                logger.error(f"Error en short {pair} (intento {attempt+1}): {e}")
+                if self._consecutive_errors >= 3:
+                    self._circuit_open = True
+                    logger.critical("🔴 Circuit breaker activado. Bot detenido.")
+                    raise RuntimeError("Circuit breaker activado") from e
+                await asyncio.sleep(self.RETRY_DELAY)
+        return None
+
+    async def execute_buy_to_close(self, pair: str, position, current_price: float, reason: str, db=None) -> dict:
+        """Compra para cubrir un short en el exchange real."""
+        self._check_circuit_breaker()
+
+        if isinstance(position, dict):
+            amount_crypto = position["amount_crypto"]
+            amount_eur_invested = position["amount_eur_invested"]
+            entry_price = position["entry_price"]
+            entry_timestamp = position.get("entry_timestamp")
+            position_id = position["id"]
+        else:
+            amount_crypto = position.amount_crypto
+            amount_eur_invested = position.amount_eur_invested
+            entry_price = position.entry_price
+            entry_timestamp = position.entry_timestamp.isoformat() + "Z" if hasattr(position.entry_timestamp, 'isoformat') else position.entry_timestamp
+            position_id = position.id
+
+        for attempt in range(self.MAX_RETRIES):
+            try:
+                order = await self.exchange.create_market_buy_order(pair, amount_crypto)
+                self._consecutive_errors = 0
+                filled_price = order.get("average", current_price)
+                gross_eur = amount_crypto * filled_price
+                fee_eur = order.get("fee", {}).get("cost", gross_eur * config.exchange.taker_fee)
+                total_cost = gross_eur + fee_eur
+                pnl_eur = amount_eur_invested - total_cost
+
+                if db is None:
+                    db = SessionLocal()
+                    close_db = True
+                else:
+                    close_db = False
+
+                try:
+                    crud.close_position(db, position_id, filled_price, reason)
+                    trade = crud.create_trade(db, {
+                        "position_id": position_id,
+                        "pair": pair,
+                        "side": "buy_to_close",
+                        "amount_crypto": amount_crypto,
+                        "amount_eur": gross_eur,
+                        "price": filled_price,
+                        "fee_eur": fee_eur,
+                        "mode": "real",
+                        "exchange_order_id": order.get("id"),
+                    })
+                finally:
+                    if close_db:
+                        db.close()
+
+                logger.info(f"{'💚' if pnl_eur >= 0 else '🔴'} [REAL] BUY_TO_COVER {pair} @ {filled_price:.2f}€ | PnL={pnl_eur:+.2f}€ | {reason}")
+                return {
+                    "trade_id": trade.id,
+                    "pair": pair,
+                    "side": "buy_to_close",
+                    "amount_crypto": amount_crypto,
+                    "amount_eur": gross_eur,
+                    "price": filled_price,
+                    "entry_price": entry_price,
+                    "entry_timestamp": entry_timestamp,
+                    "fee_eur": fee_eur,
+                    "pnl_eur": pnl_eur,
+                    "pnl_pct": pnl_eur / amount_eur_invested * 100 if amount_eur_invested > 0 else 0,
+                    "close_reason": reason,
+                    "mode": "real",
+                }
+            except Exception as e:
+                self._consecutive_errors += 1
+                logger.error(f"Error en buy_to_close {pair} (intento {attempt+1}): {e}")
+                await asyncio.sleep(self.RETRY_DELAY)
+        return None
+
     async def close(self):
         await self.exchange.close()
