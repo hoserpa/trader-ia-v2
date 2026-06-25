@@ -72,8 +72,10 @@ class TelegramNotifier:
 
     async def notify_trade(self, trade: dict, signal: dict) -> None:
         mode_label = "DEMO" if trade.get("mode") == "demo" else "⚠️ REAL"
+        is_short = trade.get("side") == "short"
+        emoji = "🔴" if is_short else "🟢"
         text = (
-            f"🟢 *NUEVA COMPRA* `[{mode_label}]`\n"
+            f"{emoji} *{'NUEVO SHORT' if is_short else 'NUEVA COMPRA'}* `[{mode_label}]`\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
             f"📌 *{trade['pair']}*\n"
             f"💰 Invertido: `{trade.get('amount_eur', 0):.2f}€`\n"
@@ -92,6 +94,9 @@ class TelegramNotifier:
         entry_price = trade.get("entry_price", 0)
         duration = _format_duration(position.get("entry_timestamp", "") if position else trade.get("entry_timestamp", ""))
         
+        is_short_close = trade.get("side") == "buy_to_close"
+        label = "COBERTURA" if is_short_close else "VENTA"
+        
         reason_icon = "📊"
         if "stop" in reason.lower():
             reason_icon = "🛡️"
@@ -99,7 +104,7 @@ class TelegramNotifier:
             reason_icon = "🎯"
         
         text = (
-            f"{emoji} *VENTA* `[{trade.get('mode', 'demo').upper()}]`\n"
+            f"{emoji} *{label}* `[{trade.get('mode', 'demo').upper()}]`\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
             f"📌 *{trade['pair']}* a `{trade['price']:.2f}€`\n"
             f"(entró a `{entry_price:.2f}€` | ⏱️ {duration})\n"

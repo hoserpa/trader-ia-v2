@@ -207,7 +207,7 @@ class RiskManager:
                 return True, f"force_close (horas={hours_open:.1f} > max={config.risk.max_position_hours}h, PnL={pnl_pct:.2f}%)"
             direction_to_close = "SELL"
 
-        if signal.get("signal") == direction_to_close and signal.get("confidence", 0) >= config.risk.min_confidence_threshold:
+        if signal.get("signal") == direction_to_close and signal.get("confidence", 0) >= config.risk.close_confidence_threshold:
             return True, f"model_signal ({direction_to_close} con confianza={signal['confidence']:.2%})"
 
         if signal.get("signal") == "HOLD" and signal.get("confidence", 0) > 0.95:

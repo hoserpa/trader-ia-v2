@@ -87,6 +87,7 @@ class RiskConfig:
     max_daily_trades: int = field(default_factory=lambda: int(os.getenv("MAX_DAILY_TRADES", "40")))
     high_volatility_atr_threshold: float = field(default_factory=lambda: float(os.getenv("HIGH_VOLATILITY_ATR_THRESHOLD", "0.025")))
     min_confidence_threshold: float = field(default_factory=lambda: float(os.getenv("MIN_CONFIDENCE_THRESHOLD", "0.03")))
+    close_confidence_threshold: float = field(default_factory=lambda: float(os.getenv("CLOSE_CONFIDENCE_THRESHOLD", "0.30")))
     min_trade_eur: float = 5.0
     max_position_hours: int = field(default_factory=lambda: int(os.getenv("MAX_POSITION_HOURS", "4")))
     trailing_stop_activation_pct: float = field(default_factory=lambda: float(os.getenv("TRAILING_STOP_ACTIVATION_PCT", "0.008")))
