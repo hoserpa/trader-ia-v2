@@ -60,6 +60,17 @@ class Portfolio:
     def get(self) -> dict:
         return self._state.copy()
 
+    async def refresh_if_changed(self) -> bool:
+        """Recarga estado desde Redis si detecta cambio externo (reset)."""
+        raw = await self.redis.get(REDIS_PORTFOLIO_KEY)
+        if raw:
+            redis_state = json.loads(raw)
+            if redis_state.get("created_at") != self._state.get("created_at"):
+                self._state = redis_state
+                logger.info("Portfolio recargado tras cambio externo (reset)")
+                return True
+        return False
+
     async def update_balance(self, delta_eur: float) -> None:
         self._state["balance_eur"] = round(self._state["balance_eur"] + delta_eur, 4)
         await self._save(self._state)

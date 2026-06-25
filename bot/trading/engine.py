@@ -379,6 +379,7 @@ class TradingEngine:
                 if trade:
                     await self.redis.publish("bot:live_updates", _json_dumps({"type": "trade_executed", "data": trade}))
         else:
+            await self.portfolio.refresh_if_changed()
             portfolio_state = self.portfolio.get()
             prices = {p: await self.collector.get_current_price(p) or 0 for p in config.trading.pairs}
             portfolio_state = await self.portfolio.update_valuations(prices)
@@ -427,6 +428,7 @@ class TradingEngine:
 
     async def _save_portfolio_snapshot(self, db) -> None:
         """Guarda snapshot del portafolio actual en DB."""
+        await self.portfolio.refresh_if_changed()
         prices = {}
         for pair in config.trading.pairs:
             price = await self.collector.get_current_price(pair)
