@@ -158,8 +158,12 @@ def get_stats_summary(db: Session) -> dict:
     closed_positions = db.query(Position).filter_by(status="closed").all()
     
     today_trades = db.query(Trade).filter(Trade.timestamp >= today).all()
-    today_winners = [t for t in today_trades if t.side == "sell" and t.position and t.position.pnl_eur and t.position.pnl_eur > 0]
-    today_losers = [t for t in today_trades if t.side == "sell" and t.position and t.position.pnl_eur and t.position.pnl_eur <= 0]
+    today_closed = db.query(Position).filter(
+        Position.status == "closed",
+        Position.close_timestamp >= today
+    ).all()
+    today_winners = [p for p in today_closed if p.pnl_eur and p.pnl_eur > 0]
+    today_losers = [p for p in today_closed if p.pnl_eur and p.pnl_eur <= 0]
     
     today_errors = db.query(func.count(SystemLog.id)).filter(
         SystemLog.timestamp >= today,
