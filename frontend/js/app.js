@@ -84,7 +84,7 @@ createApp({
           alert(res.data.error);
           return;
         }
-        const defaults = { total_value_eur: 1000, balance_eur: 1000, total_pnl_eur: 0, total_pnl_pct: 0, positions: {} };
+        const defaults = { total_value_eur: 100, balance_eur: 100, total_pnl_eur: 0, total_pnl_pct: 0, positions: {} };
         portfolio.value = defaults;
         trades.value = [];
         latestSignals.value = [];

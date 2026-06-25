@@ -67,7 +67,7 @@ async def reset_full():
     try:
         result = reset_full_portfolio_data(db)
         
-        initial_balance = float(os.getenv("DEMO_INITIAL_BALANCE", "1000.0"))
+        initial_balance = float(os.getenv("DEMO_INITIAL_BALANCE", "100.0"))
         from datetime import datetime
         new_portfolio = {
             "balance_eur": initial_balance,

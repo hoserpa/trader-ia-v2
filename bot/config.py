@@ -59,7 +59,7 @@ class TradingConfig:
     mode: str = field(default_factory=lambda: os.getenv("TRADING_MODE", "demo"))
     pairs: list = field(default_factory=lambda: os.getenv("TRADING_PAIRS", "BTC/EUR,ETH/EUR,SOL/EUR").split(","))
     base_currency: str = field(default_factory=lambda: os.getenv("BASE_CURRENCY", "EUR"))
-    demo_initial_balance: float = field(default_factory=lambda: float(os.getenv("DEMO_INITIAL_BALANCE", "1000.0")))
+    demo_initial_balance: float = field(default_factory=lambda: float(os.getenv("DEMO_INITIAL_BALANCE", "100.0")))
     analysis_interval: int = field(default_factory=lambda: int(os.getenv("ANALYSIS_INTERVAL_SECONDS", "600")))
     timeframe: str = field(default_factory=lambda: _normalize_timeframe(os.getenv("MODEL_TIMEFRAME", "15m")))
     candles_required: int = field(default_factory=lambda: int(os.getenv("MODEL_CANDLES_REQUIRED", "200")))
