@@ -106,6 +106,14 @@ def update_position_order_ids(db: Session, position_id: int, sl_order_id: str = 
     return pos
 
 
+def update_position_partial_pnl(db: Session, position_id: int, partial_pnl: float) -> Position:
+    """Acumula PnL de una venta parcial en realized_pnl_eur de la posición."""
+    pos = db.query(Position).get(position_id)
+    pos.realized_pnl_eur = (pos.realized_pnl_eur or 0.0) + partial_pnl
+    db.commit()
+    return pos
+
+
 def close_position(db: Session, position_id: int, close_price: float, reason: str) -> Position:
     pos = db.query(Position).get(position_id)
     pos.status = "closed"
@@ -113,12 +121,14 @@ def close_position(db: Session, position_id: int, close_price: float, reason: st
     pos.close_timestamp = datetime.utcnow()
     pos.close_reason = reason
     pos_type = getattr(pos, "position_type", "long")
+    realized = pos.realized_pnl_eur or 0.0
     if pos_type == "short":
-        pos.pnl_eur = (pos.entry_price - close_price) * pos.amount_crypto
+        final_pnl = (pos.entry_price - close_price) * pos.amount_crypto
         pos.pnl_pct = (pos.entry_price - close_price) / pos.entry_price * 100
     else:
-        pos.pnl_eur = (close_price - pos.entry_price) * pos.amount_crypto
+        final_pnl = (close_price - pos.entry_price) * pos.amount_crypto
         pos.pnl_pct = (close_price - pos.entry_price) / pos.entry_price * 100
+    pos.pnl_eur = realized + final_pnl
     db.commit()
     return pos
 

@@ -125,6 +125,17 @@ class DemoTrader:
             close_db = False
 
         try:
+            if remaining_crypto > 0.00000001:
+                crud.update_position_partial_pnl(db, position_id, pnl_eur)
+                from database.models import Position as PositionModel
+                pos = db.query(PositionModel).get(position_id)
+                if pos:
+                    pos.amount_crypto = remaining_crypto
+                    pos.amount_eur_invested = remaining_invested
+                    db.commit()
+            else:
+                crud.close_position(db, position_id, current_price, reason)
+
             trade = crud.create_trade(db, {
                 "position_id": position_id,
                 "pair": pair,
@@ -401,6 +412,17 @@ class DemoTrader:
             close_db = False
 
         try:
+            if remaining_crypto > 0.00000001:
+                crud.update_position_partial_pnl(db, position_id, pnl_eur)
+                from database.models import Position as PositionModel
+                pos = db.query(PositionModel).get(position_id)
+                if pos:
+                    pos.amount_crypto = remaining_crypto
+                    pos.amount_eur_invested = remaining_invested
+                    db.commit()
+            else:
+                crud.close_position(db, position_id, current_price, reason)
+
             trade = crud.create_trade(db, {
                 "position_id": position_id,
                 "pair": pair,

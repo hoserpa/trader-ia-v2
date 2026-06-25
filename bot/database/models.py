@@ -54,6 +54,7 @@ class Position(Base):
     pnl_eur = Column(Float, nullable=True)
     pnl_pct = Column(Float, nullable=True)
     close_reason = Column(String(20), nullable=True)
+    realized_pnl_eur = Column(Float, nullable=False, default=0.0)
     stop_loss_order_id = Column(String(100), nullable=True)
     take_profit_order_id = Column(String(100), nullable=True)
     trades = relationship("Trade", back_populates="position")

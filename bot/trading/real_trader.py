@@ -258,6 +258,7 @@ class RealTrader:
 
                 try:
                     if remaining_crypto > 0.00000001:
+                        crud.update_position_partial_pnl(db, position_id, pnl_eur)
                         from database.models import Position as PositionModel
                         pos = db.query(PositionModel).get(position_id)
                         if pos:
@@ -608,6 +609,7 @@ class RealTrader:
 
                 try:
                     if remaining_crypto > 0.00000001:
+                        crud.update_position_partial_pnl(db, position_id, pnl_eur)
                         from database.models import Position as PositionModel
                         pos = db.query(PositionModel).get(position_id)
                         if pos:
