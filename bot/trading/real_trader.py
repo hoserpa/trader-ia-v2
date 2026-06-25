@@ -189,6 +189,7 @@ class RealTrader:
                     if close_db:
                         db.close()
 
+                await self.portfolio.update_balance(-amount_eur)
                 logger.info(f"🟢 [REAL] COMPRA {pair}: {filled_amount:.8f} @ {filled_price:.2f}€ (fee={fee_rate*100:.2f}%)")
                 return {
                     "trade_id": trade.id,
@@ -292,6 +293,8 @@ class RealTrader:
                     if close_db:
                         db.close()
 
+                net_eur = gross_eur - fee_eur
+                await self.portfolio.update_balance(net_eur)
                 logger.info(f"💚 [REAL] VENTA PARCIAL {pair} @ {filled_price:.2f}€ | PnL={pnl_eur:+.2f}€ | restante={remaining_crypto:.8f} | {reason}")
                 return {
                     "trade_id": trade.id,
@@ -369,6 +372,8 @@ class RealTrader:
                     if close_db:
                         db.close()
 
+                net_eur = gross_eur - fee_eur
+                await self.portfolio.update_balance(net_eur)
                 logger.info(f"{'💚' if pnl_eur >= 0 else '🔴'} [REAL] VENTA {pair} @ {filled_price:.2f}€ | PnL={pnl_eur:+.2f}€ | {reason}")
                 return {
                     "trade_id": trade.id,
@@ -461,6 +466,8 @@ class RealTrader:
                     if close_db:
                         db.close()
 
+                net_eur = gross_eur - fee_eur
+                await self.portfolio.update_balance(net_eur)
                 logger.info(f"🔴 [REAL] SHORT {pair}: {filled_amount:.8f} @ {filled_price:.2f}€ (fee={fee_rate*100:.2f}%)")
                 return {
                     "trade_id": trade.id,
@@ -548,6 +555,7 @@ class RealTrader:
                     if close_db:
                         db.close()
 
+                await self.portfolio.update_balance(-total_cost)
                 logger.info(f"{'💚' if pnl_eur >= 0 else '🔴'} [REAL] BUY_TO_COVER {pair} @ {filled_price:.2f}€ | PnL={pnl_eur:+.2f}€ | {reason}")
                 return {
                     "trade_id": trade.id,
@@ -643,6 +651,7 @@ class RealTrader:
                     if close_db:
                         db.close()
 
+                await self.portfolio.update_balance(-total_cost)
                 logger.info(f"💚 [REAL] PARCIAL BUY_TO_COVER {pair} @ {filled_price:.2f}€ | PnL={pnl_eur:+.2f}€ | restante={remaining_crypto:.8f} | {reason}")
                 return {
                     "trade_id": trade.id,
