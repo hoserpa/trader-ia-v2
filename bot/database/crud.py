@@ -95,6 +95,17 @@ def get_open_position_by_pair_dict(db: Session, pair: str) -> Optional[dict]:
     return None
 
 
+def update_position_order_ids(db: Session, position_id: int, sl_order_id: str = None, tp_order_id: str = None) -> Position:
+    """Actualiza los IDs de órdenes stop-loss/take-profit de exchange en una posición."""
+    pos = db.query(Position).get(position_id)
+    if sl_order_id:
+        pos.stop_loss_order_id = sl_order_id
+    if tp_order_id:
+        pos.take_profit_order_id = tp_order_id
+    db.commit()
+    return pos
+
+
 def close_position(db: Session, position_id: int, close_price: float, reason: str) -> Position:
     pos = db.query(Position).get(position_id)
     pos.status = "closed"

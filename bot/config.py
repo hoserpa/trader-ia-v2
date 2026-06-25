@@ -51,6 +51,7 @@ class ExchangeConfig:
     api_key: str = field(default_factory=lambda: os.getenv("KRAKEN_API_KEY", ""))
     api_secret: str = field(default_factory=lambda: os.getenv("KRAKEN_API_SECRET", ""))
     taker_fee: float = 0.0026  # Kraken taker fee ~0.26%
+    maker_fee: float = 0.0016  # Kraken maker fee ~0.16%
 
 
 @dataclass
@@ -90,6 +91,8 @@ class RiskConfig:
     close_confidence_threshold: float = field(default_factory=lambda: float(os.getenv("CLOSE_CONFIDENCE_THRESHOLD", "0.30")))
     min_trade_eur: float = 5.0
     max_position_hours: int = field(default_factory=lambda: int(os.getenv("MAX_POSITION_HOURS", "4")))
+    exchange_stop_loss: bool = field(default_factory=lambda: os.getenv("EXCHANGE_STOP_LOSS", "true").lower() == "true")
+    limit_order_timeout: int = field(default_factory=lambda: int(os.getenv("LIMIT_ORDER_TIMEOUT", "15")))
     trailing_stop_activation_pct: float = field(default_factory=lambda: float(os.getenv("TRAILING_STOP_ACTIVATION_PCT", "0.008")))
     trailing_stop_distance_atr: float = field(default_factory=lambda: float(os.getenv("TRAILING_STOP_DISTANCE_ATR", "1.0")))
     partial_exit_pct: float = field(default_factory=lambda: float(os.getenv("PARTIAL_EXIT_PCT", "0.50")))

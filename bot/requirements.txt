@@ -19,6 +19,9 @@ apscheduler>=3.10.0
 # HTTP
 httpx>=0.25.0
 
+# WebSocket (Kraken real-time tickers)
+websockets>=10.0
+
 # Logging
 loguru>=0.7.0
 

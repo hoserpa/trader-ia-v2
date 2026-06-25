@@ -6,10 +6,13 @@ from typing import Optional
 import ccxt.async_support as ccxt
 import pandas as pd
 import redis.asyncio as aioredis
+import websockets
 from loguru import logger
 from config import config
 from database.crud import upsert_candles
 from database.init_db import SessionLocal
+
+KRAKEN_WS_URL = "wss://ws.kraken.com"
 
 
 class DataCollector:
@@ -73,63 +76,107 @@ class DataCollector:
         self._running = True
         logger.info(f"Iniciando recolección de datos para pares: {config.trading.pairs}")
 
-        # Cargar mercados spot explicitamente (endpoint público, no requiere API key)
         try:
             await self.exchange.load_markets()
         except Exception as e:
             logger.error(f"Error cargando mercados: {e}")
-        
-        if await self._check_websocket_support():
-            logger.info("WebSocket soportado, usando streaming en tiempo real.")
-            await asyncio.gather(
-                self._run_websocket_loop(),
-                self._run_ohlcv_loop(),
-            )
-        else:
-            logger.info("WebSocket no disponible, usando polling REST.")
-            await asyncio.gather(
-                self._run_polling_loop(),
-                self._run_ohlcv_loop(),
-            )
 
-    async def _check_websocket_support(self) -> bool:
-        """Verifica si el exchange soporta watchTickers via has dict.
-        No llama load_markets() — exchange.has es estático y no requiere
-        requests a la API que puedan fallar por falta de permisos (margin/futures).
-        """
-        return bool(self.exchange.has.get('watchTickers', False))
+        await asyncio.gather(
+            self._run_kraken_ws(),
+            self._run_ohlcv_loop(),
+        )
 
-    async def stop(self) -> None:
-        self._running = False
-        await self.exchange.close()
-        logger.info("DataCollector detenido.")
+    async def _kraken_pair(self, pair: str) -> str:
+        """Convierte BTC/EUR a XBT/EUR (formato Kraken WebSocket)."""
+        base, quote = pair.split("/")
+        if base == "BTC":
+            base = "XBT"
+        return f"{base}/{quote}"
 
-    async def _run_websocket_loop(self) -> None:
-        """Loop de reconexión del WebSocket de tickers.
-        Si falla MAX_WS_RETRIES veces seguidas, cambia a polling REST.
+    async def _run_kraken_ws(self) -> None:
+        """Conecta al WebSocket público de Kraken para tickers en tiempo real.
+        Usa la API directamente (no ccxt) para evitar dependencia de ccxt.pro.
+        Si falla, hace fallback a polling REST.
         """
         ws_failures = 0
-        MAX_WS_RETRIES = 3
+        MAX_WS_RETRIES = 5
         delay = self._reconnect_delay
 
-        while self._running and ws_failures < MAX_WS_RETRIES:
+        while self._running:
             try:
-                await self._watch_tickers()
-                ws_failures = 0
-                delay = self._reconnect_delay
+                async with websockets.connect(KRAKEN_WS_URL) as ws:
+                    ws_failures = 0
+                    delay = self._reconnect_delay
+
+                    kraken_pairs = [await self._kraken_pair(p) for p in config.trading.pairs]
+                    subscribe = {
+                        "event": "subscribe",
+                        "pair": kraken_pairs,
+                        "subscription": {"name": "ticker"},
+                    }
+                    await ws.send(json.dumps(subscribe))
+                    logger.info(f"Kraken WS conectado, suscrito a {kraken_pairs}")
+
+                    async def _heartbeat():
+                        while self._running:
+                            await asyncio.sleep(20)
+                            try:
+                                await ws.send(json.dumps({"event": "ping"}))
+                            except Exception:
+                                break
+
+                    hb_task = asyncio.create_task(_heartbeat())
+
+                    try:
+                        async for message in ws:
+                            data = json.loads(message)
+                            if isinstance(data, list) and len(data) >= 4:
+                                _, ticker_data, channel_name, pair_raw = data
+                                if channel_name == "ticker":
+                                    pair = "BTC/" + pair_raw[4:] if pair_raw.startswith("XBT/") else pair_raw
+                                    last_price = float(ticker_data.get("c", [0])[0])
+                                    if last_price and last_price > 0:
+                                        await self.redis.set(
+                                            self.REDIS_PRICE_KEY.format(pair=pair),
+                                            str(last_price),
+                                            ex=60,
+                                        )
+                                        await self.redis.publish(
+                                            "price_update",
+                                            json.dumps({"pair": pair, "price": last_price, "timestamp": datetime.utcnow().isoformat() + "Z"}),
+                                        )
+                            elif isinstance(data, dict):
+                                if data.get("event") == "heartbeat":
+                                    continue
+                                if data.get("event") == "systemStatus" and data.get("status") == "online":
+                                    logger.info("Kraken WS: sistema online")
+                                if data.get("event") == "subscriptionStatus" and data.get("status") == "subscribed":
+                                    logger.info(f"Kraken WS: suscrito a {data.get('pair')} ({data.get('subscription', {}).get('name')})")
+                    except websockets.ConnectionClosed:
+                        logger.warning("Kraken WS: conexión cerrada, reconectando...")
+                    except Exception as e:
+                        logger.warning(f"Kraken WS: error en mensaje: {e}")
+                    finally:
+                        hb_task.cancel()
+                        try:
+                            await hb_task
+                        except asyncio.CancelledError:
+                            pass
+
             except Exception as e:
                 ws_failures += 1
-                logger.warning(f"WebSocket error ({ws_failures}/{MAX_WS_RETRIES}): {e}. Reconectando en {delay}s...")
+                logger.warning(f"Kraken WS error ({ws_failures}/{MAX_WS_RETRIES}): {e}. Reconectando en {delay}s...")
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, self._max_reconnect_delay)
 
-        if ws_failures >= MAX_WS_RETRIES and self._running:
-            logger.warning(f"WebSocket: {MAX_WS_RETRIES} intentos fallidos, cambiando a polling REST")
-            await self._run_polling_loop()
+            if ws_failures >= MAX_WS_RETRIES and self._running:
+                logger.warning("Kraken WS: máximo de reintentos, cambiando a polling REST")
+                await self._run_polling_loop()
+                break
 
     async def _run_polling_loop(self) -> None:
-        """Fallback: consulta precios por REST cada 60s."""
-        poll_interval = 60
+        """Fallback: consulta precios por REST cada 30s."""
+        poll_interval = 30
         while self._running:
             try:
                 for pair in config.trading.pairs:
@@ -153,22 +200,10 @@ class DataCollector:
                 logger.error(f"Error en polling loop: {e}")
             await asyncio.sleep(poll_interval)
 
-    async def _watch_tickers(self) -> None:
-        """Suscripción a precios en tiempo real via ccxt WebSocket."""
-        while self._running:
-            tickers = await self.exchange.watch_tickers(config.trading.pairs)
-            for pair, ticker in tickers.items():
-                price = ticker.get("last")
-                if price:
-                    await self.redis.set(
-                        self.REDIS_PRICE_KEY.format(pair=pair),
-                        str(price),
-                        ex=60,
-                    )
-                    await self.redis.publish(
-                        "price_update",
-                        json.dumps({"pair": pair, "price": price, "timestamp": datetime.utcnow().isoformat() + "Z"}),
-                    )
+    async def stop(self) -> None:
+        self._running = False
+        await self.exchange.close()
+        logger.info("DataCollector detenido.")
 
     async def _run_ohlcv_loop(self) -> None:
         """Descarga periódica de velas OHLCV (cada cierre de vela)."""
