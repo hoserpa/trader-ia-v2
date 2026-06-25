@@ -69,12 +69,12 @@ TRADING_MODE=demo
 # Pares a operar
 TRADING_PAIRS=BTC/EUR,ETH/EUR,SOL/EUR
 
-# Exchange (binance, coinbase, kraken, etc)
-EXCHANGE=binance
+# Exchange (kraken, binance, coinbase, etc)
+EXCHANGE=kraken
 
-# Claves API (solo para modo real)
-BINANCE_API_KEY=tu_api_key
-BINANCE_API_SECRET=tu_api_secret
+# Exchange API
+KRAKEN_API_KEY=tu_api_key
+KRAKEN_API_SECRET=tu_api_secret
 
 # Thresholds de señal (optimizado para el modelo entrenado)
 BUY_THRESHOLD=0.40

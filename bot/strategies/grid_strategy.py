@@ -1,4 +1,4 @@
-"""Estrategia de grid trading en futuros Binance para capturar volatilidad lateral.
+"""Estrategia de grid trading en futuros para capturar volatilidad lateral.
 
 Opera independientemente del ML: coloca órdenes limit en niveles equidistantes.
 Cada fill genera la orden opuesta en el nivel adyacente, capturando el spread.

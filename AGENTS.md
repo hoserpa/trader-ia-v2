@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-This is a Python-based cryptocurrency trading bot using LightGBM ML model, FastAPI backend, and Vue.js frontend. It connects to Binance API for live trading.
+This is a Python-based cryptocurrency trading bot using LightGBM ML model, FastAPI backend, and Vue.js frontend. It connects to Kraken API for live trading.
 
 - **Objective**: 2-4% monthly return (realistic target)
 - **Python**: 3.11 (via Docker)
@@ -194,11 +194,11 @@ Create `.env` file in project root:
 # Trading
 TRADING_MODE=demo
 TRADING_PAIRS=BTC/EUR,ETH/EUR,SOL/EUR
-EXCHANGE=binance
+EXCHANGE=kraken
 
 # Exchange API
-BINANCE_API_KEY=
-BINANCE_API_SECRET=
+KRAKEN_API_KEY=
+KRAKEN_API_SECRET=
 
 # Database
 SQLITE_DB_PATH=/app/data/crypto_trader.db

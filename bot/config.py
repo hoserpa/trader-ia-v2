@@ -22,7 +22,7 @@ def _normalize_pair(pair: str, base_currency: str = "EUR") -> str:
 
 
 def _normalize_timeframe(tf: str) -> str:
-    """Normaliza el timeframe al formato que espera Binance.
+    """Normaliza el timeframe al formato que espera el exchange.
     
     15min -> 15m
     1hour -> 1h
@@ -47,10 +47,10 @@ def _get_exchange_symbol(pair: str) -> str:
 
 @dataclass
 class ExchangeConfig:
-    name: str = field(default_factory=lambda: os.getenv("EXCHANGE", "binance"))
-    api_key: str = field(default_factory=lambda: os.getenv("BINANCE_API_KEY", ""))
-    api_secret: str = field(default_factory=lambda: os.getenv("BINANCE_API_SECRET", ""))
-    taker_fee: float = 0.001  # Binance taker fee ~0.1%
+    name: str = field(default_factory=lambda: os.getenv("EXCHANGE", "kraken"))
+    api_key: str = field(default_factory=lambda: os.getenv("KRAKEN_API_KEY", ""))
+    api_secret: str = field(default_factory=lambda: os.getenv("KRAKEN_API_SECRET", ""))
+    taker_fee: float = 0.0026  # Kraken taker fee ~0.26%
 
 
 @dataclass
@@ -67,11 +67,12 @@ class TradingConfig:
         return self.mode == "demo"
     
     def get_symbol(self, pair: str) -> str:
-        """Retorna el símbolo sin barra para APIs de exchange.
+        """Retorna el símbolo del par para el exchange.
         
-        BTC/EUR -> BTCEUR
+        ccxt maneja internamente la conversión al formato nativo del exchange,
+        así que pasamos el formato unificado con barra.
         """
-        return _get_exchange_symbol(pair)
+        return pair
 
 
 @dataclass
@@ -161,7 +162,7 @@ class AppConfig:
     def validate(self) -> None:
         if not self.trading.is_demo():
             if not self.exchange.api_key or not self.exchange.api_secret:
-                raise ValueError("BINANCE_API_KEY y BINANCE_API_SECRET son obligatorios en modo real.")
+                raise ValueError("KRAKEN_API_KEY y KRAKEN_API_SECRET son obligatorios en modo real.")
         if self.trading.mode not in ("demo", "real"):
             raise ValueError(f"TRADING_MODE inválido: {self.trading.mode}. Debe ser 'demo' o 'real'.")
 

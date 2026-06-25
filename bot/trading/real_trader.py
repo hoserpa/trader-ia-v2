@@ -41,9 +41,7 @@ class RealTrader:
 
         for attempt in range(self.MAX_RETRIES):
             try:
-                order = await self.exchange.create_market_buy_order(
-                    pair, amount_crypto, params={"quoteOrderQty": amount_eur}
-                )
+                order = await self.exchange.create_market_buy_order(pair, amount_crypto)
                 self._consecutive_errors = 0
                 filled_price = order.get("average", current_price)
                 filled_amount = order.get("filled", amount_crypto)

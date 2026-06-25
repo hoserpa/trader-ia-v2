@@ -35,10 +35,6 @@ class DataCollector:
         exchange_id = config.exchange.name.lower()
         params = {
             "enableRateLimit": True,
-            "options": {
-                "defaultType": "spot",
-                "fetchMarkets": ["spot"],
-            },
         }
         if config.trading.mode == "real":
             params["apiKey"] = config.exchange.api_key
@@ -48,14 +44,10 @@ class DataCollector:
         return exchange
 
     def _build_futures_exchange(self):
-        """Construye una instancia ccxt para futuros USDⓈ-M."""
-        exchange_id = config.exchange.name.lower()
+        """Construye una instancia ccxt para futuros."""
+        exchange_id = "krakenfutures"
         params = {
             "enableRateLimit": True,
-            "options": {
-                "defaultType": "future",
-                "defaultSubType": "linear",
-            },
         }
         if config.trading.mode == "real":
             params["apiKey"] = config.exchange.api_key
