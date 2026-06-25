@@ -84,15 +84,14 @@ createApp({
           alert(res.data.error);
           return;
         }
-        portfolio.value = { total_value_eur: 10000, balance_eur: 10000, total_pnl_eur: 0, total_pnl_pct: 0, positions: {} };
-        openPositions.value = [];
+        const defaults = { total_value_eur: 10000, balance_eur: 10000, total_pnl_eur: 0, total_pnl_pct: 0, positions: {} };
+        portfolio.value = defaults;
         trades.value = [];
         latestSignals.value = [];
         stats.value = {};
         const portRes = await api.get('/portfolio');
-        portfolio.value = portRes.data;
+        if (!portRes.data.error) portfolio.value = portRes.data;
         trades.value = (await api.get('/trades?limit=50')).data;
-        openPositions.value = (await api.get('/portfolio')).data.positions || [];
         latestSignals.value = (await api.get('/market/signals')).data;
         stats.value = (await api.get('/trades/stats')).data;
         await loadPortfolioHistory(historyDays.value);

@@ -67,10 +67,20 @@ async def reset_full():
     try:
         result = reset_full_portfolio_data(db)
         
-        await redis.delete("portfolio:state")
+        initial_balance = float(os.getenv("DEMO_INITIAL_BALANCE", "1000.0"))
+        from datetime import datetime
+        new_portfolio = {
+            "balance_eur": initial_balance,
+            "initial_balance_eur": initial_balance,
+            "positions": {},
+            "total_value_eur": initial_balance,
+            "total_pnl_eur": 0.0,
+            "total_pnl_pct": 0.0,
+            "created_at": datetime.utcnow().isoformat() + "Z",
+        }
+        await redis.set("portfolio:state", json.dumps(new_portfolio))
         await redis.delete("bot:stats")
         await redis.delete("open_positions")
-        await redis.set("portfolio:balance_eur", "10000")
         
         return {"success": True, **result}
     finally:
