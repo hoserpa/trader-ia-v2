@@ -87,7 +87,25 @@
     <div class="card">
       <div class="card-label">Win rate</div>
       <div class="card-value">{{ stats.win_rate?.toFixed(1) || '—' }}%</div>
-      <div class="card-sub">{{ stats.closed_positions || 0 }} operaciones cerradas</div>
+      <div class="card-sub">
+        {{ stats.closed_positions || 0 }} cerradas ·
+        <span :class="stats.avg_pnl_pct >= 0 ? 'positive' : 'negative'">{{ stats.avg_pnl_pct?.toFixed(2) || '0.00' }}% media</span>
+      </div>
+      <div class="card-sub" style="font-size:0.7rem;color:#6b7280;margin-top:2px">
+        Mejor: <span class="positive">{{ stats.best_trade ? formatPrice(stats.best_trade)+'€' : '—' }}</span>
+        · Peor: <span class="negative">{{ stats.worst_trade ? formatPrice(stats.worst_trade)+'€' : '—' }}</span>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-label">Hoy</div>
+      <div class="card-value">{{ stats.trades_today || 0 }}</div>
+      <div class="card-sub">
+        <span class="positive">{{ stats.wins_today || 0 }} ganadas</span>
+        · <span class="negative">{{ stats.losses_today || 0 }} perdidas</span>
+      </div>
+      <div class="card-sub" style="font-size:0.7rem;color:#6b7280;margin-top:2px">
+        {{ stats.errors_today || 0 }} errores
+      </div>
     </div>
   </section>
 

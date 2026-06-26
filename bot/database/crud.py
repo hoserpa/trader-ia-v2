@@ -183,8 +183,8 @@ def get_stats_summary(db: Session) -> dict:
         Position.status == "closed",
         Position.close_timestamp >= today
     ).all()
-    today_winners = [p for p in today_closed if p.pnl_eur and p.pnl_eur > 0]
-    today_losers = [p for p in today_closed if p.pnl_eur and p.pnl_eur <= 0]
+    today_winners = [p for p in today_closed if p.pnl_eur is not None and p.pnl_eur > 0]
+    today_losers = [p for p in today_closed if p.pnl_eur is not None and p.pnl_eur <= 0]
     
     today_errors = db.query(func.count(SystemLog.id)).filter(
         SystemLog.timestamp >= today,
@@ -194,6 +194,7 @@ def get_stats_summary(db: Session) -> dict:
     if not closed_positions:
         return {
             "total_trades": total_trades,
+            "closed_positions": 0,
             "win_rate": 0,
             "avg_pnl_pct": 0,
             "total_pnl_eur": 0,
@@ -206,13 +207,13 @@ def get_stats_summary(db: Session) -> dict:
             "errors_today": today_errors,
         }
 
-    winners = [p for p in closed_positions if p.pnl_eur and p.pnl_eur > 0]
-    losers = [p for p in closed_positions if p.pnl_eur and p.pnl_eur <= 0]
-    total_pnl = sum(p.pnl_eur for p in closed_positions if p.pnl_eur)
-    avg_pnl_pct = sum(p.pnl_pct for p in closed_positions if p.pnl_pct) / len(closed_positions) if closed_positions else 0
-    
-    best_trade = max((p.pnl_eur for p in closed_positions if p.pnl_eur), default=0)
-    worst_trade = min((p.pnl_eur for p in closed_positions if p.pnl_eur), default=0)
+    winners = [p for p in closed_positions if p.pnl_eur is not None and p.pnl_eur > 0]
+    losers = [p for p in closed_positions if p.pnl_eur is not None and p.pnl_eur <= 0]
+    total_pnl = sum(p.pnl_eur for p in closed_positions if p.pnl_eur is not None)
+    avg_pnl_pct = sum(p.pnl_pct for p in closed_positions if p.pnl_pct is not None) / len(closed_positions) if closed_positions else 0
+
+    best_trade = max((p.pnl_eur for p in closed_positions if p.pnl_eur is not None), default=0)
+    worst_trade = min((p.pnl_eur for p in closed_positions if p.pnl_eur is not None), default=0)
     
     max_drawdown = calculate_max_drawdown_from_snapshots(db)
 
