@@ -12,6 +12,25 @@ class RiskManager:
     Aplica todas las reglas de gestión de riesgo configuradas.
     """
 
+    def __init__(self):
+        self._last_close_per_pair: dict[str, float] = {}
+
+    def record_close(self, pair: str) -> None:
+        """Registra el timestamp de cierre para aplicar cooldown en el mismo par."""
+        from datetime import datetime, timezone
+        self._last_close_per_pair[pair] = datetime.now(timezone.utc).timestamp()
+
+    def _cooldown_passed(self, pair: str) -> tuple[bool, str]:
+        """Verifica si ha pasado el cooldown desde el último cierre en este par."""
+        if pair not in self._last_close_per_pair:
+            return True, ""
+        from datetime import datetime, timezone
+        elapsed = datetime.now(timezone.utc).timestamp() - self._last_close_per_pair[pair]
+        remaining = config.risk.cooldown_minutes * 60 - elapsed
+        if remaining > 0:
+            return False, f"cooldown de {config.risk.cooldown_minutes}min en {pair} ({remaining/60:.0f}min restantes)"
+        return True, ""
+
     def _hours_since(self, entry_timestamp) -> float:
         if entry_timestamp is None:
             return 0.0
@@ -44,6 +63,10 @@ class RiskManager:
 
         if signal.get("confidence", 0) < config.risk.min_confidence_threshold:
             return False, f"Confianza insuficiente: {signal['confidence']:.2%} < {config.risk.min_confidence_threshold:.2%}", 0.0
+
+        cooldown_ok, cooldown_reason = self._cooldown_passed(pair)
+        if not cooldown_ok:
+            return False, cooldown_reason, 0.0
 
         db = SessionLocal()
         try:
@@ -112,6 +135,10 @@ class RiskManager:
 
         if signal.get("confidence", 0) < config.risk.min_confidence_threshold:
             return False, f"Confianza insuficiente: {signal['confidence']:.2%} < {config.risk.min_confidence_threshold:.2%}", 0.0
+
+        cooldown_ok, cooldown_reason = self._cooldown_passed(pair)
+        if not cooldown_ok:
+            return False, cooldown_reason, 0.0
 
         db = SessionLocal()
         try:
@@ -318,6 +345,14 @@ class RiskManager:
         """Evalúa filtros técnicos para confirmar dirección."""
         import pandas as pd
         last = candles.iloc[-1]
+        price = last.get("close")
+
+        if "ema_50" in candles.columns and not pd.isna(last.get("ema_50")) and price is not None:
+            ema_50 = last["ema_50"]
+            if direction == "BUY" and price < ema_50:
+                return False, f"precio={price:.2f} < EMA50={ema_50:.2f} (tendencia bajista)"
+            if direction == "SELL" and price > ema_50:
+                return False, f"precio={price:.2f} > EMA50={ema_50:.2f} (tendencia alcista)"
 
         if "rsi_14" not in candles.columns or pd.isna(last.get("rsi_14")):
             return True, "sin RSI disponible"

@@ -139,6 +139,7 @@ def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
     df["ema_9"] = _ema(df["close"], 9)
     df["ema_21"] = _ema(df["close"], 21)
+    df["ema_50"] = _ema(df["close"], 50)
     df["sma_50"] = _sma(df["close"], 50)
     df["sma_200"] = _sma(df["close"], 200)
 

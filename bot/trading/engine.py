@@ -356,6 +356,7 @@ class TradingEngine:
                     trade = await self.trader.execute_sell(pair, open_position_dict, current_price, sell_reason, db=db)
                 if trade:
                     executed = True
+                    self.risk_manager.record_close(pair)
                     await self.redis.publish("bot:live_updates", _json_dumps({"type": "trade_executed", "data": trade}))
                     await self.telegram.notify_position_closed(trade, trade.get("pnl_eur", 0), open_position_dict)
             elif take_partial:
