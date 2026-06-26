@@ -31,6 +31,7 @@ from trading.demo_trader import DemoTrader
 from trading.real_trader import RealTrader
 from strategies.grid_strategy import GridStrategy
 from notifications.telegram import TelegramNotifier
+from config_service import apply_overrides
 from database.crud import (
     save_decision, save_portfolio_snapshot, get_open_position_by_pair, get_open_position_by_pair_dict, get_open_positions
 )
@@ -188,6 +189,7 @@ class TradingEngine:
             db = SessionLocal()
 
             try:
+                await apply_overrides(self.redis)
                 for pair in config.trading.pairs:
                     try:
                         await self._analyze_pair(pair, db)

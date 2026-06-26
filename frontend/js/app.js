@@ -17,6 +17,12 @@ createApp({
     const gridState = ref({ enabled: false, running: false, pairs: {}, config: {} });
     const historyDays = ref(30);
     const logContainer = ref(null);
+    const configModalOpen = ref(false);
+    const configForm = ref({});
+    const configGroups = ref([]);
+    const configSaving = ref(false);
+    const configSaved = ref(false);
+    const configFieldsMeta = ref([]);
     let portfolioChart = null;
     let ws = null;
     let wsReconnectTimer = null;
@@ -99,6 +105,57 @@ createApp({
       } catch (e) { alert('Error al resetear: ' + e.message); }
     };
 
+    const loadConfig = async () => {
+      try {
+        const res = await api.get('/config');
+        const fields = res.data.fields;
+        configFieldsMeta.value = fields;
+        const form = {};
+        fields.forEach(f => { form[f.key] = f.current; });
+        configForm.value = form;
+        const groups = [];
+        const sections = { risk: 'Gestión de Riesgo', trading: 'Trading' };
+        const sectionMap = {};
+        fields.forEach(f => {
+          const label = sections[f.section] || f.section;
+          if (!sectionMap[label]) { sectionMap[label] = { label, fields: [] }; groups.push(sectionMap[label]); }
+          sectionMap[label].fields.push(f);
+        });
+        configGroups.value = groups;
+      } catch (e) { console.error('Error cargando config:', e); }
+    };
+
+    const openConfig = async () => {
+      configModalOpen.value = true;
+      configSaved.value = false;
+      await loadConfig();
+    };
+
+    const closeConfig = () => {
+      configModalOpen.value = false;
+    };
+
+    const saveConfig = async () => {
+      configSaving.value = true;
+      configSaved.value = false;
+      try {
+        const keys = Object.keys(configForm.value);
+        for (const key of keys) {
+          await api.put(`/config/${key}`, { value: configForm.value[key] });
+        }
+        configSaved.value = true;
+        setTimeout(() => configSaved.value = false, 3000);
+      } catch (e) { alert('Error guardando configuración: ' + e.message); }
+      finally { configSaving.value = false; }
+    };
+
+    const restoreField = async (key) => {
+      try {
+        await api.delete(`/config/${key}`);
+        await loadConfig();
+      } catch (e) { alert('Error restaurando campo: ' + e.message); }
+    };
+
     const dedupSignals = (signals) => {
       const map = {};
       signals.forEach(s => { if (!map[s.pair] || s.timestamp > map[s.pair].timestamp) map[s.pair] = s; });
@@ -174,6 +231,8 @@ createApp({
       latestSignals, stats, gridState, historyDays, logContainer, openPositions,
       formatPrice, formatDate, modeClass, statusClass, statusTextClass, signalClass,
       loadPortfolioHistory, resetPortfolio,
+      configModalOpen, configForm, configGroups, configSaving, configSaved,
+      openConfig, closeConfig, saveConfig, restoreField,
     };
   }
 }).mount('#app');

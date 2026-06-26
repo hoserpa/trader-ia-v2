@@ -29,9 +29,43 @@
       <span v-for="(price, pair) in prices" :key="pair" class="price-chip">
         {{ pair }}: <strong>{{ formatPrice(price) }}€</strong>
       </span>
+      <button @click="openConfig" class="config-btn" title="Configuración">⚙️</button>
       <button v-if="botStatus.mode === 'demo'" @click="resetPortfolio" class="reset-btn" title="Resetear todo">↺</button>
     </div>
   </header>
+
+  <!-- Modal de configuración -->
+  <div v-if="configModalOpen" class="modal-overlay" @click.self="closeConfig">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Configuración en caliente</h2>
+        <button @click="closeConfig" class="modal-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-note">Los cambios se aplican al instante, sin reiniciar el contenedor.</p>
+        <div v-for="group in configGroups" :key="group.label" class="config-group">
+          <h3 class="config-group-title">{{ group.label }}</h3>
+          <div v-for="field in group.fields" :key="field.key" class="config-row">
+            <label class="config-label">{{ field.label }}</label>
+            <div class="config-control">
+              <input v-if="field.type === 'number'" type="number" v-model.number="configForm[field.key]" :min="field.min" :max="field.max" :step="field.step || 1" class="config-input" />
+              <label v-else-if="field.type === 'bool'" class="config-toggle">
+                <input type="checkbox" v-model="configForm[field.key]" />
+                <span class="toggle-slider"></span>
+              </label>
+              <button v-if="field.overridden" @click="restoreField(field.key)" class="config-restore" title="Restaurar valor por defecto">↩</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <span v-if="configSaving" class="config-saving">Guardando...</span>
+        <span v-if="configSaved" class="config-saved">✓ Guardado</span>
+        <button @click="closeConfig" class="btn-cancel">Cerrar</button>
+        <button @click="saveConfig" class="btn-save">Guardar cambios</button>
+      </div>
+    </div>
+  </div>
 
   <section class="cards">
     <div class="card">
