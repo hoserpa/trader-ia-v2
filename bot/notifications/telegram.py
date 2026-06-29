@@ -57,122 +57,70 @@ class TelegramNotifier:
 
     async def notify_bot_started(self) -> None:
         mode = "DEMO" if config.trading.is_demo() else "REAL"
-        text = (
-            f"🤖 *Bot iniciado*\n"
-            f"Modo: `{mode}`\n"
-            f"Pares: `{', '.join(config.trading.pairs)}`\n"
-            f"Intervalo: `{config.trading.analysis_interval // 60}min`\n"
-            f"Timeframe: `{config.trading.timeframe}`"
-        )
+        text = f"🤖 *Bot iniciado* · {mode} · {', '.join(config.trading.pairs)} · {config.trading.analysis_interval // 60}min · {config.trading.timeframe}"
         await self._send(text)
 
     async def notify_bot_stopped(self) -> None:
         text = "🛑 *Bot detenido*"
         await self._send(text)
 
-    async def notify_trade(self, trade: dict, signal: dict) -> None:
-        mode_label = "DEMO" if trade.get("mode") == "demo" else "⚠️ REAL"
+    async def notify_trade(self, trade: dict, signal: dict, portfolio_state: dict | None = None) -> None:
         is_short = trade.get("side") == "short"
         emoji = "🔴" if is_short else "🟢"
-        text = (
-            f"{emoji} *{'NUEVO SHORT' if is_short else 'NUEVA COMPRA'}* `[{mode_label}]`\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"📌 *{trade['pair']}*\n"
-            f"💰 Invertido: `{trade.get('amount_eur', 0):.2f}€`\n"
-            f"📊 Recibido: `{trade['amount_crypto']:.8f}`\n"
-            f"💵 Precio entrada: `{trade['price']:.2f}€`\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"🛡️ SL: `{trade.get('stop_loss', 0):.2f}€` | 🎯 TP: `{trade.get('take_profit', 0):.2f}€`\n"
-            f"📈 Señal: *{signal.get('signal', 'HOLD')}* `{signal.get('confidence', 0):.0%}` | B:{signal.get('probabilities', {}).get('BUY', 0):.0%} S:{signal.get('probabilities', {}).get('SELL', 0):.0%}"
-        )
+        label = "SHORT" if is_short else "COMPRA"
+        pair = trade["pair"].replace("/", "")
+        balance = portfolio_state.get("balance_eur", 0) if portfolio_state else 0
+        price = trade["price"]
+        crypto = trade["amount_crypto"]
+        sl = trade.get("stop_loss", 0)
+        tp = trade.get("take_profit", 0)
+
+        line1 = f"{emoji} *{label}* {pair} {price:.2f}€ · {crypto:.6g} {pair.split('/')[0]}"
+        line2 = f"SL {sl:.2f} TP {tp:.2f} · Balance {balance:.2f}€"
+        text = f"{line1}\n{line2}"
         await self._send(text)
 
-    async def notify_position_closed(self, trade: dict, pnl_eur: float, position: dict) -> None:
+    async def notify_position_closed(self, trade: dict, pnl_eur: float, position: dict, portfolio_state: dict | None = None) -> None:
         emoji = "💚" if pnl_eur >= 0 else "🔴"
         sign = "+" if pnl_eur >= 0 else ""
         reason = trade.get("close_reason", "signal")
-        entry_price = trade.get("entry_price", 0)
         duration = _format_duration(position.get("entry_timestamp", "") if position else trade.get("entry_timestamp", ""))
-        
         is_short_close = trade.get("side") == "buy_to_close"
         label = "COBERTURA" if is_short_close else "VENTA"
-        
-        reason_icon = "📊"
-        if "stop" in reason.lower():
-            reason_icon = "🛡️"
-        elif "take" in reason.lower():
-            reason_icon = "🎯"
-        
-        text = (
-            f"{emoji} *{label}* `[{trade.get('mode', 'demo').upper()}]`\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"📌 *{trade['pair']}* a `{trade['price']:.2f}€`\n"
-            f"(entró a `{entry_price:.2f}€` | ⏱️ {duration})\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"💰 PnL: `{sign}{pnl_eur:.2f}€ ({sign}{trade.get('pnl_pct', 0):.2f}%)`\n"
-            f"{reason_icon} Razón: `{reason}`"
-        )
+        pair = trade["pair"].replace("/", "")
+        balance = portfolio_state.get("balance_eur", 0) if portfolio_state else 0
+        pnl_pct = trade.get("pnl_pct", 0)
+
+        line1 = f"{emoji} *{label}* {pair} {sign}{pnl_eur:.2f}€ ({sign}{pnl_pct:.2f}%) · {duration}"
+        line2 = f"{reason} · Balance {balance:.2f}€"
+        text = f"{line1}\n{line2}"
         await self._send(text)
 
     async def notify_error(self, error: str) -> None:
-        text = (
-            f"🔴 *ERROR CRÍTICO*\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"```{error[:500]}```"
-        )
+        text = f"🔴 *ERROR* `{error[:300]}`"
         await self._send(text, priority="error")
 
     async def notify_warning(self, message: str) -> None:
-        text = (
-            f"⚠️ *AVISO*\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"{message}"
-        )
+        text = f"⚠️ *AVISO* {message}"
         await self._send(text, priority="warning")
-
-    async def notify_signal(self, signal: dict) -> None:
-        signal_emoji = "🟢" if signal["signal"] == "BUY" else ("🔴" if signal["signal"] == "SELL" else "⚪")
-        text = (
-            f"{signal_emoji} *SEÑAL {signal['signal']}*\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"📌 Par: `{signal['pair']}`\n"
-            f"💶 Precio: `{signal.get('price', 0):.2f}€`\n"
-            f"📊 Confianza: `{signal['confidence']:.1%}`"
-        )
-        await self._send(text, priority="info")
 
     async def send_daily_summary(self, portfolio: dict, stats: dict) -> None:
         mode = "DEMO" if config.trading.is_demo() else "REAL"
         pnl = portfolio.get("total_pnl_eur", 0)
         pnl_pct = portfolio.get("total_pnl_pct", 0)
+        val = portfolio.get("total_value_eur", 0)
+        open_pos = portfolio.get("open_positions", 0)
         pnl_emoji = "📈" if pnl >= 0 else "📉"
-        
-        win_rate = stats.get("win_rate", 0) * 100 if stats.get("win_rate", 0) <= 1 else stats.get("win_rate", 0)
+
+        win_rate = stats.get("win_rate", 0)
+        if win_rate and win_rate <= 1:
+            win_rate *= 100
         trades = stats.get("trades_today", 0)
         wins = stats.get("wins_today", 0)
-        losses = stats.get("losses_today", 0)
-        best_trade = stats.get("best_trade", 0)
-        worst_trade = stats.get("worst_trade", 0)
-        max_dd = stats.get("max_drawdown", 0)
         errors = stats.get("errors_today", 0)
-        
+
         text = (
-            f"📊 *Resumen Diario* `[{mode}]`\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"{pnl_emoji} Portfolio: `{portfolio.get('total_value_eur', 0):.2f}€`\n"
-            f"{pnl_emoji} PnL: `{pnl:+.2f}€ ({pnl_pct:+.2f}%)`\n"
-            f"\n"
-            f"📈 *Trades:*\n"
-            f"├ Hoy: `{trades}` ({wins}✅ / {losses}❌)\n"
-            f"├ Win rate: `{win_rate:.1f}%`\n"
-            f"├ Mejor: `+{best_trade:.2f}€`\n"
-            f"└ Peor: `{worst_trade:.2f}€`\n"
-            f"\n"
-            f"📊 *Riesgo:*\n"
-            f"├ Max DD: `{max_dd:.1f}%`\n"
-            f"└ Posiciones: `{portfolio.get('open_positions', 0)}`\n"
-            f"\n"
-            f"🔧 *Sistema:*\n"
-            f"└ Errores hoy: `{errors}`"
+            f"📊 *Resumen* `{mode}` · {val:.2f}€ · {pnl_emoji} PnL {pnl:+.2f}€ ({pnl_pct:+.2f}%)\n"
+            f"Hoy {trades} trades ({wins}✅) · WR {win_rate:.0f}% · {open_pos} open · Errores {errors}"
         )
         await self._send(text)

@@ -207,8 +207,7 @@ class TradingEngine:
                     self._consecutive_errors += 1
                     if self._consecutive_errors >= 3:
                         await self.telegram.notify_warning(
-                            f"⚠️ *{self._consecutive_errors} errores consecutivos*\n"
-                            f"El bot ha tenido errores en los últimos ciclos."
+                            f"{self._consecutive_errors} errores consecutivos en el ciclo de análisis"
                         )
                 else:
                     self._consecutive_errors = 0
@@ -220,6 +219,7 @@ class TradingEngine:
                 await self._publish_status()
 
                 await self._check_drawdown()
+                await self._send_daily_summary_if_needed()
 
                 self.predictor.reload_if_updated()
             finally:
@@ -240,6 +240,26 @@ class TradingEngine:
                 logger.error(f"Error en grid loop: {e}")
             await asyncio.sleep(config.grid.poll_interval)
 
+    async def _send_daily_summary_if_needed(self) -> None:
+        """Envía resumen diario una vez por día."""
+        from datetime import date
+        today_key = "bot:last_summary_date"
+        last_date = await self.redis.get(today_key)
+        today_str = str(date.today())
+        if last_date == today_str:
+            return
+
+        portfolio_state = self.portfolio.get()
+        prices = {p: await self.collector.get_current_price(p) or 0 for p in config.trading.pairs}
+        portfolio_state = await self.portfolio.update_valuations(prices)
+
+        async with SessionLocal() as db:
+            from bot.database.crud import get_stats_summary
+            stats = get_stats_summary(db)
+
+        await self.telegram.send_daily_summary(portfolio_state, stats)
+        await self.redis.set(today_key, today_str)
+
     async def _check_drawdown(self) -> None:
         """Notifica si el drawdown supera el umbral."""
         portfolio_state = self.portfolio.get()
@@ -252,10 +272,7 @@ class TradingEngine:
             drawdown = (self._peak_portfolio - current_value) / self._peak_portfolio
             if drawdown > 0.10:
                 await self.telegram.notify_warning(
-                    f"📉 *Alerta Drawdown*\n"
-                    f"Current: `{current_value:.2f}€`\n"
-                    f"Peak: `{self._peak_portfolio:.2f}€`\n"
-                    f"Drawdown: `{drawdown*100:.1f}%`"
+                    f"Drawdown {drawdown*100:.1f}% · Peak {self._peak_portfolio:.2f}€ → Now {current_value:.2f}€"
                 )
 
     async def _analyze_pair(self, pair: str, db) -> None:
@@ -360,7 +377,8 @@ class TradingEngine:
                     executed = True
                     self.risk_manager.record_close(pair)
                     await self.redis.publish("bot:live_updates", _json_dumps({"type": "trade_executed", "data": trade}))
-                    await self.telegram.notify_position_closed(trade, trade.get("pnl_eur", 0), open_position_dict)
+                    portfolio_state = self.portfolio.get()
+                    await self.telegram.notify_position_closed(trade, trade.get("pnl_eur", 0), open_position_dict, portfolio_state)
             elif take_partial:
                 if position_type == "short":
                     logger.info(f"  ↳ Ganancia parcial short: tomando {config.risk.partial_exit_pct:.0%} en {pair}")
@@ -397,7 +415,8 @@ class TradingEngine:
                     if trade:
                         executed = True
                         await self.redis.publish("bot:live_updates", _json_dumps({"type": "trade_executed", "data": trade}))
-                        await self.telegram.notify_trade(trade, signal)
+                        portfolio_state = self.portfolio.get()
+                        await self.telegram.notify_trade(trade, signal, portfolio_state)
                 else:
                     rejection_reason = reason
                     if signal["signal"] != "HOLD":
@@ -412,7 +431,8 @@ class TradingEngine:
                     if trade:
                         executed = True
                         await self.redis.publish("bot:live_updates", _json_dumps({"type": "trade_executed", "data": trade}))
-                        await self.telegram.notify_trade(trade, signal)
+                        portfolio_state = self.portfolio.get()
+                        await self.telegram.notify_trade(trade, signal, portfolio_state)
                 else:
                     rejection_reason = reason
                     if signal["signal"] != "HOLD":
