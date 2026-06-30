@@ -274,7 +274,7 @@ class TradingEngine:
         prices = {p: await self.collector.get_current_price(p) or 0 for p in config.trading.pairs}
         portfolio_state = await self.portfolio.update_valuations(prices)
 
-        async with SessionLocal() as db:
+        with SessionLocal() as db:
             from bot.database.crud import get_stats_summary
             stats = get_stats_summary(db)
 
