@@ -186,10 +186,20 @@ class TradingEngine:
         while self._running:
             start_time = asyncio.get_event_loop().time()
             cycle_had_error = False
-            db = SessionLocal()
 
             try:
-                await apply_overrides(self.redis)
+                db = SessionLocal()
+            except Exception:
+                logger.exception("Error creando sesión DB — esperando siguiente ciclo")
+                await asyncio.sleep(config.trading.analysis_interval)
+                continue
+
+            try:
+                try:
+                    await apply_overrides(self.redis)
+                except Exception as e:
+                    logger.warning(f"Error en apply_overrides: {e}")
+
                 for pair in config.trading.pairs:
                     try:
                         await self._analyze_pair(pair, db)
@@ -215,15 +225,26 @@ class TradingEngine:
                         self._status = "running"
                         logger.info("✅ Bot recuperado de error")
 
-                await self._save_portfolio_snapshot(db)
-                await self._publish_status()
+                try:
+                    await self._save_portfolio_snapshot(db)
+                except Exception as e:
+                    logger.warning(f"Error guardando snapshot: {e}")
 
+                await self._publish_status()
                 await self._check_drawdown()
                 await self._send_daily_summary_if_needed()
 
-                self.predictor.reload_if_updated()
+                try:
+                    self.predictor.reload_if_updated()
+                except Exception as e:
+                    logger.warning(f"Error recargando modelo: {e}")
+            except Exception:
+                logger.exception("Error inesperado en ciclo de análisis — continuando")
             finally:
-                db.close()
+                try:
+                    db.close()
+                except Exception:
+                    pass
 
             elapsed = asyncio.get_event_loop().time() - start_time
             sleep_time = max(0, config.trading.analysis_interval - elapsed)
