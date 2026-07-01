@@ -27,6 +27,7 @@ EDITABLE_FIELDS: dict[str, dict] = {
     "high_volatility_atr_threshold": {"section": "risk", "type": float, "label": "Umbral alta volatilidad ATR %", "min": 0.01, "max": 0.10, "step": 0.005},
     "exchange_stop_loss": {"section": "risk", "type": bool, "label": "Stop-loss en exchange"},
     "limit_order_timeout": {"section": "risk", "type": int, "label": "Timeout orden límite (s)", "min": 5, "max": 120, "step": 5},
+    "min_volatility_atr_pct": {"section": "risk", "type": float, "label": "ATR % mínimo para operar", "min": 0.0005, "max": 0.01, "step": 0.0005},
     "analysis_interval": {"section": "trading", "type": int, "label": "Intervalo de análisis (s)", "min": 60, "max": 7200, "step": 30},
 }
 

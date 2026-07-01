@@ -94,8 +94,8 @@ class RiskManager:
         if atr_pct > config.risk.high_volatility_atr_threshold:
             return False, f"Alta volatilidad (ATR%={atr_pct:.2%} > {config.risk.high_volatility_atr_threshold:.2%})", 0.0
 
-        if atr_pct < 0.002:
-            return False, f"Volatilidad muy baja (ATR%={atr_pct:.2%} < 0.2%), sin señal", 0.0
+        if atr_pct < config.risk.min_volatility_atr_pct:
+            return False, f"Volatilidad muy baja (ATR%={atr_pct:.2%} < {config.risk.min_volatility_atr_pct:.2%}), sin señal", 0.0
 
         balance_eur = portfolio.get("balance_eur", 0)
         if balance_eur < config.risk.min_trade_eur:
@@ -166,8 +166,8 @@ class RiskManager:
         if atr_pct > config.risk.high_volatility_atr_threshold:
             return False, f"Alta volatilidad (ATR%={atr_pct:.2%} > {config.risk.high_volatility_atr_threshold:.2%})", 0.0
 
-        if atr_pct < 0.002:
-            return False, f"Volatilidad muy baja (ATR%={atr_pct:.2%} < 0.2%), sin señal", 0.0
+        if atr_pct < config.risk.min_volatility_atr_pct:
+            return False, f"Volatilidad muy baja (ATR%={atr_pct:.2%} < {config.risk.min_volatility_atr_pct:.2%}), sin señal", 0.0
 
         balance_eur = portfolio.get("balance_eur", 0)
         if balance_eur < config.risk.min_trade_eur:
