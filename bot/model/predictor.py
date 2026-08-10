@@ -85,15 +85,18 @@ class ModelPredictor:
                 p_hold = prob_dict.get("HOLD", 1.0)
                 buy_sell_diff = p_buy - p_sell
 
-                # Usar diferencia directional en vez de argmax, porque el modelo
-                # tiene bias hacia HOLD (~90%+ de las labels de entrenamiento)
-                min_diff = 0.005
-                if buy_sell_diff > min_diff:
-                    signal = "BUY"
-                    confidence = buy_sell_diff / (buy_sell_diff + p_hold)
-                elif buy_sell_diff < -min_diff:
-                    signal = "SELL"
-                    confidence = -buy_sell_diff / (-buy_sell_diff + p_hold)
+                # Regla alineada con el entrenamiento: argmax con umbral de confianza.
+                # El modelo fue evaluado con argmax + threshold (0.60); emitir BUY/SELL
+                # solo si la probabilidad máxima supera el umbral, si no -> HOLD.
+                # El antiguo truco (diff > 0.005) disparaba señal casi siempre y
+                # anulaba la calibración del modelo (sobrerreacción).
+                best_class = max(prob_dict, key=prob_dict.get)
+                best_prob = prob_dict[best_class]
+                threshold = config.risk.min_confidence_threshold
+
+                if best_class != "HOLD" and best_prob >= threshold:
+                    signal = best_class
+                    confidence = best_prob
                 else:
                     signal = "HOLD"
                     confidence = p_hold

@@ -37,7 +37,8 @@ FEATURE_COLS = [
     "volume_change", "volume_ratio", "obv_slope",
     "stoch_k", "stoch_d", "williams_r", "cci_20",
     "hour_sin", "hour_cos", "day_of_week", "is_weekend",
-    "volatility_regime"
+    "volatility_regime",
+    "pair_id"
 ]
 
 LABEL_MAP = {0: "SELL", 1: "HOLD", 2: "BUY"}
@@ -140,7 +141,6 @@ def train_lightgbm(X_train, y_train, X_val, y_val):
         n_jobs=2,
         verbose=-1,
         random_state=42,
-        class_weight="balanced",
     )
 
     logger.info("Entrenando LightGBM con early stopping...")
@@ -177,7 +177,6 @@ def optimize_with_optuna(X_train, y_train, X_val, y_val, n_trials: int = 30):
             "n_jobs": 2,
             "verbose": -1,
             "random_state": 42,
-            "class_weight": "balanced",
         }
 
         model = lgb.LGBMClassifier(**params)
@@ -216,7 +215,6 @@ def optimize_with_optuna(X_train, y_train, X_val, y_val, n_trials: int = 30):
     best_params["n_jobs"] = 2
     best_params["verbose"] = -1
     best_params["random_state"] = 42
-    best_params["class_weight"] = "balanced"
     best_params["objective"] = "multiclass"
     best_params["num_class"] = 3
 
@@ -338,7 +336,7 @@ def main():
     parser.add_argument("--val-size", type=float, default=0.15)
     parser.add_argument("--n-trials", type=int, default=30, help="Trials de Optuna")
     parser.add_argument("--label", type=str, default="label", help="Columna de label (label, label_3, label_6, label_12)")
-    parser.add_argument("--oversample-strength", type=float, default=1.0, help="Fuerza de oversampling (0.0=no oversampling, 1.0=balance completo)")
+    parser.add_argument("--oversample-strength", type=float, default=0.0, help="Fuerza de oversampling (0.0=no oversampling, 1.0=balance completo)")
     parser.add_argument("--walk-forward", action="store_true", help="Ejecutar walk-forward validation")
     parser.add_argument("--no-optuna", action="store_true", help="Saltar optimización Optuna")
     args = parser.parse_args()
@@ -414,7 +412,7 @@ def main():
         "n_samples_test": len(test_df),
         "n_samples_after_oversampling": len(X_train_bal),
         "feature_cols": FEATURE_COLS,
-        "confidence_threshold": 0.60,
+        "confidence_threshold": 0.55,
         "label_col": label_col,
         "oversample_strength": args.oversample_strength,
         "validation_metrics": val_metrics,

@@ -7,12 +7,15 @@ import numpy as np
 from loguru import logger
 
 
+PAIR_MAP = {"BTC/EUR": 0, "ETH/EUR": 1, "SOL/EUR": 2}
+
+
 class FeatureBuilder:
     """Transforma velas + indicadores en el vector de features para LightGBM."""
 
     MIN_ROWS = 55
 
-    def build_features(self, df: pd.DataFrame) -> Optional[pd.Series]:
+    def build_features(self, df: pd.DataFrame, pair: Optional[str] = None) -> Optional[pd.Series]:
         """Recibe DataFrame con indicadores ya calculados.
         Retorna Series de features para la última vela, o None si hay datos insuficientes.
         """
@@ -115,14 +118,16 @@ class FeatureBuilder:
         else:
             features["volatility_regime"] = 1.0
 
+        features["pair_id"] = PAIR_MAP.get(pair, 0)
+
         return pd.Series(features)
 
-    def build_features_batch(self, df: pd.DataFrame) -> pd.DataFrame:
+    def build_features_batch(self, df: pd.DataFrame, pair: Optional[str] = None) -> pd.DataFrame:
         """Para entrenamiento: construye features de todas las filas válidas."""
         feature_rows = []
         for i in range(self.MIN_ROWS, len(df)):
             subset = df.iloc[:i+1]
-            row = self.build_features(subset)
+            row = self.build_features(subset, pair=pair)
             if row is not None:
                 row["index"] = i
                 feature_rows.append(row)

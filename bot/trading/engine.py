@@ -330,7 +330,7 @@ class TradingEngine:
 
         current_price = current_price or get_current_price(candles_with_indicators)
 
-        features = self.feature_builder.build_features(candles_with_indicators)
+        features = self.feature_builder.build_features(candles_with_indicators, pair=pair)
         if features is None:
             logger.warning(f"{pair}: features = None, no se puede predecir")
             return
@@ -421,6 +421,14 @@ class TradingEngine:
                 if trade:
                     await self.redis.publish("bot:live_updates", _json_dumps({"type": "trade_executed", "data": trade}))
         else:
+            if config.trading.invert_ml_signals:
+                if signal["signal"] == "BUY":
+                    signal["signal"] = "SELL"
+                    logger.debug(f"  ↳ Señal invertida: BUY → SELL")
+                elif signal["signal"] == "SELL":
+                    signal["signal"] = "BUY"
+                    logger.debug(f"  ↳ Señal invertida: SELL → BUY")
+
             await self.portfolio.refresh_if_changed()
             portfolio_state = self.portfolio.get()
             prices = {p: await self.collector.get_current_price(p) or 0 for p in config.trading.pairs}

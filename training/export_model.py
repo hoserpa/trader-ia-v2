@@ -13,55 +13,62 @@ Path("logs").mkdir(exist_ok=True)
 
 
 def validate_model_files(model_dir: Path) -> bool:
-    """Valida que existen los archivos necesarios."""
+    """Valida que existen los archivos necesarios y que el modelo supera el gate de despliegue.
+
+    El gate usa el backtest out-of-sample (backtest_results.json) si existe;
+    si no, cae a las métricas de test del metadata. Sin backtest positivo NO se despliega.
+    """
     required = ["trained_model.pkl", "scaler.pkl", "model_metadata.json"]
     missing = [f for f in required if not (model_dir / f).exists()]
-    
+
     if missing:
         logger.error(f"Archivos faltantes: {missing}")
         return False
-    
+
     metadata = json.loads((model_dir / "model_metadata.json").read_text())
-    
-    required_metrics = ["precision_buy", "precision_sell", "sharpe_ratio", "max_drawdown"]
-    missing_metrics = [m for m in required_metrics if m not in metadata.get("test_metrics", {})]
-    
-    if missing_metrics:
-        logger.warning(f"Métricas faltantes en metadata: {missing_metrics}")
-    
-    MIN_PRECISION = 0.60
-    MIN_SHARPE = 1.0
-    MAX_DRAWDOWN = 0.15
-    
+
+    # Gate primario: backtest out-of-sample con la lógica real (TP/SL/fees)
+    bt_path = model_dir / "backtest_results.json"
+    if bt_path.exists():
+        bt = json.loads(bt_path.read_text())
+    else:
+        bt = metadata.get("backtest_stats", {})
+        if not bt:
+            logger.error("No hay backtest_results.json ni backtest_stats en metadata. Ejecuta backtest_model.py primero.")
+            return False
+
     test_metrics = metadata.get("test_metrics", {})
-    bt_stats = metadata.get("backtest_stats", {})
-    
-    logger.info("Validación contra mínimos del spec:")
-    
+
+    MIN_NET_PNL = 0.0
+    MIN_PRECISION = 0.45
+    MIN_WIN_RATE = 0.48
+
+    logger.info("Validación contra mínimos del spec (gate de despliegue):")
+
     checks = [
-        ("Precision BUY", test_metrics.get("precision_buy", 0), MIN_PRECISION, ">="),
-        ("Precision SELL", test_metrics.get("precision_sell", 0), MIN_PRECISION, ">="),
-        ("Sharpe", bt_stats.get("sharpe_ratio", 0), MIN_SHARPE, ">="),
-        ("Max Drawdown", bt_stats.get("max_drawdown", 1), MAX_DRAWDOWN, "<="),
+        ("Net PnL (backtest, €)", bt.get("total_pnl_eur", -1e9), MIN_NET_PNL, ">="),
+        ("Win rate (backtest)", bt.get("win_rate", 0), MIN_WIN_RATE, ">="),
+        ("Precision BUY (test)", test_metrics.get("precision_buy", 0), MIN_PRECISION, ">="),
+        ("Precision SELL (test)", test_metrics.get("precision_sell", 0), MIN_PRECISION, ">="),
     ]
-    
+
     all_passed = True
     for name, value, threshold, op in checks:
         if op == ">=":
             passed = value >= threshold
         else:
             passed = value <= threshold
-        
+
         status = "✓" if passed else "✗"
         logger.info(f"  {status} {name}: {value:.4f} {op} {threshold}")
-        
+
         if not passed:
             all_passed = False
-    
+
     if not all_passed:
-        logger.warning("Modelo no cumple requisitos mínimos. Usar con precaución.")
-    
-    return True
+        logger.error("MODELO NO SUPERA EL GATE. No se copia a producción. Usa --skip-validation solo si es explícito.")
+
+    return all_passed
 
 
 def copy_to_target(model_dir: Path, target_dir: Path) -> bool:

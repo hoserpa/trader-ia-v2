@@ -14,7 +14,7 @@ EDITABLE_FIELDS: dict[str, dict] = {
     "stop_loss_atr_multiplier": {"section": "risk", "type": float, "label": "Multiplicador ATR para SL", "min": 0.5, "max": 5.0, "step": 0.5},
     "take_profit_atr_multiplier": {"section": "risk", "type": float, "label": "Multiplicador ATR para TP", "min": 0.5, "max": 5.0, "step": 0.5},
     "max_daily_trades": {"section": "risk", "type": int, "label": "Trades máximos por día", "min": 1, "max": 50},
-    "min_confidence_threshold": {"section": "risk", "type": float, "label": "Confianza mínima para abrir", "min": 0.01, "max": 0.50, "step": 0.01},
+    "min_confidence_threshold": {"section": "risk", "type": float, "label": "Confianza mínima para abrir", "min": 0.01, "max": 0.95, "step": 0.01},
     "close_confidence_threshold": {"section": "risk", "type": float, "label": "Confianza para cerrar por modelo", "min": 0.10, "max": 0.70, "step": 0.05},
     "max_position_hours": {"section": "risk", "type": int, "label": "Horas máximas por posición", "min": 1, "max": 24},
     "cooldown_minutes": {"section": "risk", "type": int, "label": "Cooldown entre trades (min)", "min": 0, "max": 480, "step": 5},
@@ -29,6 +29,7 @@ EDITABLE_FIELDS: dict[str, dict] = {
     "limit_order_timeout": {"section": "risk", "type": int, "label": "Timeout orden límite (s)", "min": 5, "max": 120, "step": 5},
     "min_volatility_atr_pct": {"section": "risk", "type": float, "label": "ATR % mínimo para operar", "min": 0.0005, "max": 0.01, "step": 0.0005},
     "analysis_interval": {"section": "trading", "type": int, "label": "Intervalo de análisis (s)", "min": 60, "max": 7200, "step": 30},
+    "invert_ml_signals": {"section": "trading", "type": bool, "label": "Invertir señales ML (si precision <50%)"},
 }
 
 

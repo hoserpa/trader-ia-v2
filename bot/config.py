@@ -61,6 +61,7 @@ class TradingConfig:
     base_currency: str = field(default_factory=lambda: os.getenv("BASE_CURRENCY", "EUR"))
     demo_initial_balance: float = field(default_factory=lambda: float(os.getenv("DEMO_INITIAL_BALANCE", "100.0")))
     analysis_interval: int = field(default_factory=lambda: int(os.getenv("ANALYSIS_INTERVAL_SECONDS", "600")))
+    invert_ml_signals: bool = field(default_factory=lambda: os.getenv("INVERT_ML_SIGNALS", "false").lower() == "true")
     timeframe: str = field(default_factory=lambda: _normalize_timeframe(os.getenv("MODEL_TIMEFRAME", "15m")))
     candles_required: int = field(default_factory=lambda: int(os.getenv("MODEL_CANDLES_REQUIRED", "200")))
 
@@ -83,14 +84,14 @@ class RiskConfig:
     max_portfolio_in_crypto_pct: float = field(default_factory=lambda: float(os.getenv("MAX_PORTFOLIO_IN_CRYPTO_PCT", "0.25")))
     buy_threshold: float = field(default_factory=lambda: float(os.getenv("BUY_THRESHOLD", "0.10")))
     sell_threshold: float = field(default_factory=lambda: float(os.getenv("SELL_THRESHOLD", "0.10")))
-    stop_loss_atr_multiplier: float = field(default_factory=lambda: float(os.getenv("STOP_LOSS_ATR_MULTIPLIER", "2.0")))
+    stop_loss_atr_multiplier: float = field(default_factory=lambda: float(os.getenv("STOP_LOSS_ATR_MULTIPLIER", "2.5")))
     take_profit_atr_multiplier: float = field(default_factory=lambda: float(os.getenv("TAKE_PROFIT_ATR_MULTIPLIER", "3.0")))
-    max_daily_trades: int = field(default_factory=lambda: int(os.getenv("MAX_DAILY_TRADES", "10")))
+    max_daily_trades: int = field(default_factory=lambda: int(os.getenv("MAX_DAILY_TRADES", "3")))
     high_volatility_atr_threshold: float = field(default_factory=lambda: float(os.getenv("HIGH_VOLATILITY_ATR_THRESHOLD", "0.025")))
-    min_confidence_threshold: float = field(default_factory=lambda: float(os.getenv("MIN_CONFIDENCE_THRESHOLD", "0.20")))
+    min_confidence_threshold: float = field(default_factory=lambda: float(os.getenv("MIN_CONFIDENCE_THRESHOLD", "0.55")))
     close_confidence_threshold: float = field(default_factory=lambda: float(os.getenv("CLOSE_CONFIDENCE_THRESHOLD", "0.45")))
     min_trade_eur: float = 5.0
-    max_position_hours: int = field(default_factory=lambda: int(os.getenv("MAX_POSITION_HOURS", "4")))
+    max_position_hours: int = field(default_factory=lambda: int(os.getenv("MAX_POSITION_HOURS", "8")))
     exchange_stop_loss: bool = field(default_factory=lambda: os.getenv("EXCHANGE_STOP_LOSS", "true").lower() == "true")
     limit_order_timeout: int = field(default_factory=lambda: int(os.getenv("LIMIT_ORDER_TIMEOUT", "15")))
     trailing_stop_activation_pct: float = field(default_factory=lambda: float(os.getenv("TRAILING_STOP_ACTIVATION_PCT", "0.008")))
@@ -99,7 +100,7 @@ class RiskConfig:
     partial_exit_r_multiple: float = field(default_factory=lambda: float(os.getenv("PARTIAL_EXIT_R_MULTIPLE", "1.5")))
     rsi_oversold: float = field(default_factory=lambda: float(os.getenv("RSI_OVERSOLD", "30.0")))
     rsi_overbought: float = field(default_factory=lambda: float(os.getenv("RSI_OVERBOUGHT", "70.0")))
-    cooldown_minutes: int = field(default_factory=lambda: int(os.getenv("COOLDOWN_MINUTES", "30")))
+    cooldown_minutes: int = field(default_factory=lambda: int(os.getenv("COOLDOWN_MINUTES", "180")))
     min_volatility_atr_pct: float = field(default_factory=lambda: float(os.getenv("MIN_VOLATILITY_ATR_PCT", "0.0015")))
 
 

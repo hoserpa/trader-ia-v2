@@ -147,7 +147,7 @@ def run_simulation(db_path: str, days: int = 30) -> dict:
             
             subset = df.iloc[:pos+1].copy()
             subset_ind = calculate_indicators(subset)
-            features = fb.build_features(subset_ind)
+            features = fb.build_features(subset_ind, pair=pair)
             
             if features is not None:
                 signal = predictor.predict(features)

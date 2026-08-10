@@ -294,7 +294,7 @@ class TradingSimulator:
                 continue
 
             df_with_indicators = calculate_indicators(candles)
-            features = self.feature_builder.build_features(df_with_indicators)
+            features = self.feature_builder.build_features(df_with_indicators, pair=pair)
 
             if features is None:
                 continue
