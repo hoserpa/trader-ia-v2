@@ -23,7 +23,7 @@ import ccxt
 from config import config
 from data.collector import DataCollector
 from indicators.technical import calculate_indicators, get_atr, get_current_price
-from indicators.features import FeatureBuilder
+from indicators.features import FeatureBuilder, build_htf_features_for_live
 from model.predictor import ModelPredictor
 from trading.risk_manager import RiskManager
 from trading.portfolio import Portfolio
@@ -334,6 +334,10 @@ class TradingEngine:
         if features is None:
             logger.warning(f"{pair}: features = None, no se puede predecir")
             return
+
+        if any(k.startswith("h1_") for k in self.predictor.feature_names):
+            htf_feats = build_htf_features_for_live(candles_with_indicators, pair)
+            features = pd.Series({**features.to_dict(), **htf_feats})
 
         logger.debug(f"{pair}: features keys = {list(features.keys())[:10]}...")
         

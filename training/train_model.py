@@ -38,7 +38,13 @@ FEATURE_COLS = [
     "stoch_k", "stoch_d", "williams_r", "cci_20",
     "hour_sin", "hour_cos", "day_of_week", "is_weekend",
     "volatility_regime",
-    "pair_id"
+    "pair_id",
+    # Multi-timeframe features (1h context)
+    "h1_rsi_14", "h1_macd_hist", "h1_bb_pct_b", "h1_price_vs_ema21",
+    "h1_atr_pct", "h1_volume_ratio", "h1_volatility_regime",
+    # Multi-timeframe features (4h context)
+    "h4_rsi_14", "h4_macd_hist", "h4_bb_pct_b", "h4_price_vs_ema21",
+    "h4_atr_pct", "h4_volume_ratio", "h4_volatility_regime",
 ]
 
 LABEL_MAP = {0: "SELL", 1: "HOLD", 2: "BUY"}

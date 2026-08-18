@@ -20,6 +20,7 @@ from loguru import logger
 sys.path.insert(0, str(Path(__file__).parent.parent / "bot"))
 from indicators.technical import calculate_indicators
 from indicators.features import FeatureBuilder, PAIR_MAP
+from feature_engineering import resample_to_htf, merge_htf_features, HTF_FEATURE_COLS
 
 PAIRS = ["BTC/EUR", "ETH/EUR", "SOL/EUR"]
 DATA_DIR = Path(__file__).parent / "output" / "data_kraken"
@@ -106,13 +107,28 @@ def should_take_partial(pos: dict, candle_row: pd.Series, atr: float):
     return r_multiple >= 1.5
 
 
-def compute_signal(model, scaler, feature_cols, builder, indicators_df, idx, pair):
+def compute_signal(model, scaler, feature_cols, builder, indicators_df, idx, pair, htf_cache=None):
     if idx < builder.MIN_ROWS:
         return None
     subset = indicators_df.iloc[:idx + 1]
     features = builder.build_features(subset, pair=pair)
     if features is None:
         return None
+
+    if htf_cache is not None:
+        ts = indicators_df["timestamp"].iloc[idx]
+        for freq, prefix in [("1h", "h1_"), ("4h", "h4_")]:
+            feat_htf, ts_htf = htf_cache[freq]
+            htf_row = ts_htf[ts_htf <= ts]
+            if len(htf_row) > 0:
+                latest_idx = htf_row.index[-1]
+                feat_dict = feat_htf.loc[latest_idx]
+                for col in HTF_FEATURE_COLS:
+                    features[f"{prefix}{col}"] = feat_dict.get(col, 0.0)
+            else:
+                for col in HTF_FEATURE_COLS:
+                    features[f"{prefix}{col}"] = 0.0
+
     vector = np.array([features.get(name, 0.0) for name in feature_cols])
     probs = model.predict_proba(scaler.transform(vector.reshape(1, -1)))[0]
     classes = list(model.classes_)
@@ -122,9 +138,22 @@ def compute_signal(model, scaler, feature_cols, builder, indicators_df, idx, pai
     return best_class, probs[best_idx], prob_dict
 
 
-def run_backtest(model, scaler, feature_cols, data: dict[str, pd.DataFrame], threshold: float, max_hours: float, max_daily: int, start_equity: float = 68.90, start: str = None):
+def run_backtest(model, scaler, feature_cols, data: dict[str, pd.DataFrame], threshold: float, max_hours: float, max_daily: int, start_equity: float = 68.90, start: str = None, use_htf: bool = False):
     builder = FeatureBuilder()
     indicators = {p: calculate_indicators(df.copy()) for p, df in data.items()}
+
+    htf_cache = {}
+    if use_htf and any("h1_" in c for c in feature_cols):
+        logger.info("Pre-computing HTF features (1h/4h)...")
+        for pair, df in data.items():
+            htf_cache[pair] = {}
+            for freq in ["1h", "4h"]:
+                df_htf = resample_to_htf(df, freq)
+                df_htf = calculate_indicators(df_htf)
+                feat_htf = builder.build_features_batch(df_htf, pair=pair)
+                ts_htf = df_htf["timestamp"].iloc[feat_htf.index]
+                htf_cache[pair][freq] = (feat_htf, ts_htf)
+                logger.info(f"  {pair} {freq}: {len(feat_htf)} features")
 
     eq = start_equity
     trades = []
@@ -151,7 +180,7 @@ def run_backtest(model, scaler, feature_cols, data: dict[str, pd.DataFrame], thr
             row = indicators[pair].iloc[pos_i]
             atr = row.get("atr_14", 0.0) or 0.0
 
-            sig = compute_signal(model, scaler, feature_cols, builder, indicators[pair], pos_i, pair)
+            sig = compute_signal(model, scaler, feature_cols, builder, indicators[pair], pos_i, pair, htf_cache=htf_cache.get(pair))
             if sig is None:
                 continue
             signal, conf, _ = sig
@@ -260,6 +289,8 @@ def main():
     parser.add_argument("--max-daily", type=int, default=3)
     parser.add_argument("--start", type=str, default=None)
     parser.add_argument("--end", type=str, default="2026-08-10 14:00:00")
+    parser.add_argument("--htf", action="store_true", default=True, help="Usar features multi-timeframe")
+    parser.add_argument("--no-htf", dest="htf", action="store_false")
     args = parser.parse_args()
 
     model_dir = Path(args.model)
@@ -280,7 +311,7 @@ def main():
     stats, trades, curve = run_backtest(
         model, scaler, feature_cols, data,
         threshold=args.threshold, max_hours=args.max_hours, max_daily=args.max_daily,
-        start=args.start,
+        start=args.start, use_htf=args.htf,
     )
     logger.info(f"=== BACKTEST th={args.threshold} max_hours={args.max_hours} ===")
     for k, v in stats.items():

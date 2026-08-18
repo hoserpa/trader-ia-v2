@@ -1,5 +1,8 @@
 """Feature engineering: calcula indicadores, genera features y etiquetas.
 
+Soporta features multi-timeframe (MTF): indicators y features de 1h/4h
+mergeados por timestamp a 15m con merge_asof (sin lookahead).
+
 Usage:
     python feature_engineering.py --data output/data --output output/features
 """
@@ -26,6 +29,12 @@ DEFAULT_HORIZON = 32  # 8h en velas de 15m (máx. horas de posición del bot)
 DEFAULT_SL_MULT = 2.5
 DEFAULT_TP_MULT = 3.0
 
+# Features HTF que se incluyen por timeframe (seleccionadas por impacto)
+HTF_FEATURE_COLS = [
+    "rsi_14", "macd_hist", "bb_pct_b", "price_vs_ema21",
+    "atr_pct", "volume_ratio", "volatility_regime",
+]
+
 
 def load_data(data_dir: Path) -> dict[str, pd.DataFrame]:
     """Carga todos los archivos parquet del directorio."""
@@ -38,6 +47,54 @@ def load_data(data_dir: Path) -> dict[str, pd.DataFrame]:
         data[pair] = df
         logger.info(f"Cargado {pair}: {len(df)} velas")
     return data
+
+
+def resample_to_htf(df: pd.DataFrame, freq: str) -> pd.DataFrame:
+    """Resamplea velas 15m a una timeframe mayor (1h, 4h)."""
+    df = df[["timestamp", "open", "high", "low", "close", "volume"]].copy()
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df = df.set_index("timestamp")
+    agg = df.resample(freq).agg({
+        "open": "first", "high": "max", "low": "min",
+        "close": "last", "volume": "sum",
+    }).dropna().reset_index()
+    return agg
+
+
+def merge_htf_features(
+    features_15m: pd.DataFrame,
+    timestamps_15m: pd.Series,
+    features_htf: pd.DataFrame,
+    timestamps_htf: pd.Series,
+    prefix: str,
+    cols: list[str],
+) -> pd.DataFrame:
+    """Merge features HTF en 15m usando timestamp asof (backward = sin lookahead).
+
+    Cada vela 15m en t usa las features HTF del último cierre HTF <= t.
+    """
+    if features_htf.empty:
+        for c in cols:
+            features_15m[f"{prefix}{c}"] = np.nan
+        return features_15m
+
+    ts_15m = pd.to_datetime(timestamps_15m).reset_index(drop=True)
+    ts_htf = pd.to_datetime(timestamps_htf).reset_index(drop=True)
+
+    htf_df = features_htf[cols].reset_index(drop=True).copy()
+    htf_df["_ts"] = ts_htf
+    htf_df = htf_df.sort_values("_ts").reset_index(drop=True)
+
+    base = pd.DataFrame({"_ts": ts_15m})
+    base["_orig_idx"] = base.index
+
+    merged = pd.merge_asof(base, htf_df, on="_ts", direction="backward")
+    merged = merged.sort_values("_orig_idx").set_index(features_15m.index)
+
+    for c in cols:
+        features_15m[f"{prefix}{c}"] = merged[c].values
+
+    return features_15m
 
 
 def generate_labels_v1(df: pd.DataFrame) -> pd.Series:
@@ -166,6 +223,22 @@ def generate_labels_event(
     return pd.Series(labels, index=df.index)
 
 
+def _build_htf_features(
+    df_raw: pd.DataFrame, pair: str, htf_freqs: list[str],
+) -> dict[str, tuple[pd.DataFrame, pd.Series]]:
+    """Construye features HTF para cada timeframe, devolviendo (features, timestamps)."""
+    htf_data: dict[str, tuple[pd.DataFrame, pd.Series]] = {}
+    for freq in htf_freqs:
+        df_htf = resample_to_htf(df_raw, freq)
+        df_htf = calculate_indicators(df_htf)
+        builder = FeatureBuilder()
+        feat_htf = builder.build_features_batch(df_htf, pair=pair)
+        ts_htf = df_htf["timestamp"].iloc[feat_htf.index]
+        htf_data[freq] = (feat_htf, ts_htf)
+        logger.info(f"  HTF {freq}: {len(feat_htf)} velas")
+    return htf_data
+
+
 def process_pair_data(
     df: pd.DataFrame,
     pair: str,
@@ -173,6 +246,7 @@ def process_pair_data(
     horizon: int = DEFAULT_HORIZON,
     sl_mult: float = DEFAULT_SL_MULT,
     tp_mult: float = DEFAULT_TP_MULT,
+    use_htf: bool = True,
 ) -> pd.DataFrame:
     """Procesa datos de un par: indicadores + features + etiquetas."""
     logger.info(f"Procesando {pair}...")
@@ -193,6 +267,16 @@ def process_pair_data(
         return pd.DataFrame()
 
     valid_indices = features_df.index
+    ts_15m = df["timestamp"].iloc[valid_indices]
+
+    if use_htf:
+        htf_freqs = ["1h", "4h"]
+        htf_data = _build_htf_features(df, pair, htf_freqs)
+        for freq, prefix in [("1h", "h1_"), ("4h", "h4_")]:
+            feat_htf, ts_htf = htf_data[freq]
+            features_df = merge_htf_features(
+                features_df, ts_15m, feat_htf, ts_htf, prefix, HTF_FEATURE_COLS,
+            )
 
     if labeling == "event":
         for h in [8, 16, horizon]:
@@ -240,6 +324,8 @@ def main():
     parser.add_argument("--horizon", type=int, default=DEFAULT_HORIZON, help="Velas de horizonte para event labeling")
     parser.add_argument("--sl-mult", type=float, default=DEFAULT_SL_MULT, help="Multiplicador ATR del stop-loss")
     parser.add_argument("--tp-mult", type=float, default=DEFAULT_TP_MULT, help="Multiplicador ATR del take-profit")
+    parser.add_argument("--htf", action="store_true", default=True, help="Incluir features multi-timeframe (1h/4h)")
+    parser.add_argument("--no-htf", dest="htf", action="store_false", help="Deshabilitar features HTF")
     args = parser.parse_args()
 
     global LABEL_LOOKAHEAD, LABEL_THRESHOLD, LABEL_ATR_MULTIPLIER
@@ -267,6 +353,7 @@ def main():
         features_df = process_pair_data(
             df, pair, labeling=args.labeling,
             horizon=args.horizon, sl_mult=args.sl_mult, tp_mult=args.tp_mult,
+            use_htf=args.htf,
         )
         if not features_df.empty:
             all_features.append(features_df)

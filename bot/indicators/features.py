@@ -6,8 +6,60 @@ import pandas as pd
 import numpy as np
 from loguru import logger
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "bot"))
+from indicators.technical import calculate_indicators
+
 
 PAIR_MAP = {"BTC/EUR": 0, "ETH/EUR": 1, "SOL/EUR": 2}
+
+HTF_COLS = [
+    "rsi_14", "macd_hist", "bb_pct_b", "price_vs_ema21",
+    "atr_pct", "volume_ratio", "volatility_regime",
+]
+
+
+def resample_15m_to_htf(df: pd.DataFrame, freq: str) -> pd.DataFrame:
+    """Resamplea velas 15m a una timeframe mayor (1h, 4h)."""
+    cols = [c for c in ["timestamp", "open", "high", "low", "close", "volume"] if c in df.columns]
+    df = df[cols].copy()
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df = df.set_index("timestamp")
+    agg = df.resample(freq).agg({
+        "open": "first", "high": "max", "low": "min",
+        "close": "last", "volume": "sum",
+    }).dropna().reset_index()
+    return agg
+
+
+def build_htf_features_for_live(candles_15m: pd.DataFrame, pair: str) -> dict:
+    """Genera features HTF (1h/4h) a partir de velas 15m para inferencia live.
+
+    Returns: dict con keys h1_rsi_14, h1_macd_hist, etc. Valores 0.0 si no disponibles.
+    """
+    htf_features = {}
+    for freq, prefix in [("1h", "h1_"), ("4h", "h4_")]:
+        try:
+            df_htf = resample_15m_to_htf(candles_15m, freq)
+            if len(df_htf) < 55:
+                for col in HTF_COLS:
+                    htf_features[f"{prefix}{col}"] = 0.0
+                continue
+            df_htf = calculate_indicators(df_htf)
+            builder = FeatureBuilder()
+            feat = builder.build_features(df_htf, pair=pair)
+            if feat is not None:
+                for col in HTF_COLS:
+                    htf_features[f"{prefix}{col}"] = float(feat.get(col, 0.0))
+            else:
+                for col in HTF_COLS:
+                    htf_features[f"{prefix}{col}"] = 0.0
+        except Exception as e:
+            logger.warning(f"HTF features {freq} failed for {pair}: {e}")
+            for col in HTF_COLS:
+                htf_features[f"{prefix}{col}"] = 0.0
+    return htf_features
 
 
 class FeatureBuilder:
@@ -15,7 +67,7 @@ class FeatureBuilder:
 
     MIN_ROWS = 55
 
-    def build_features(self, df: pd.DataFrame, pair: Optional[str] = None) -> Optional[pd.Series]:
+    def build_features(self, df: pd.DataFrame, pair: Optional[str] = None, htf_features: Optional[dict] = None) -> Optional[pd.Series]:
         """Recibe DataFrame con indicadores ya calculados.
         Retorna Series de features para la última vela, o None si hay datos insuficientes.
         """
@@ -119,6 +171,11 @@ class FeatureBuilder:
             features["volatility_regime"] = 1.0
 
         features["pair_id"] = PAIR_MAP.get(pair, 0)
+
+        if htf_features:
+            for col in HTF_COLS:
+                features[f"h1_{col}"] = htf_features.get(f"h1_{col}", 0.0)
+                features[f"h4_{col}"] = htf_features.get(f"h4_{col}", 0.0)
 
         return pd.Series(features)
 
