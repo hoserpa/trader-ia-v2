@@ -276,7 +276,7 @@ class RealTrader:
                             )
                     else:
                         await self._cancel_exchange_order(old_sl_order_id, symbol)
-                        crud.close_position(db, position_id, filled_price, reason)
+                        crud.close_position(db, position_id, filled_price, reason, close_fee=fee_eur)
 
                     trade = crud.create_trade(db, {
                         "position_id": position_id,
@@ -356,7 +356,7 @@ class RealTrader:
                     close_db = False
 
                 try:
-                    crud.close_position(db, position_id, filled_price, reason)
+                    crud.close_position(db, position_id, filled_price, reason, close_fee=fee_eur)
                     trade = crud.create_trade(db, {
                         "position_id": position_id,
                         "pair": pair,
@@ -539,7 +539,7 @@ class RealTrader:
                     close_db = False
 
                 try:
-                    crud.close_position(db, position_id, filled_price, reason)
+                    crud.close_position(db, position_id, filled_price, reason, close_fee=fee_eur)
                     trade = crud.create_trade(db, {
                         "position_id": position_id,
                         "pair": pair,
@@ -634,7 +634,7 @@ class RealTrader:
                             )
                     else:
                         await self._cancel_exchange_order(old_sl_order_id, symbol)
-                        crud.close_position(db, position_id, filled_price, reason)
+                        crud.close_position(db, position_id, filled_price, reason, close_fee=fee_eur)
 
                     trade = crud.create_trade(db, {
                         "position_id": position_id,

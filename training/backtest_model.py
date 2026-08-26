@@ -189,7 +189,7 @@ def run_backtest(model, scaler, feature_cols, data: dict[str, pd.DataFrame], thr
                 pos = positions[pair]
                 hours_open = (ts - pos["entry_ts"]).total_seconds() / 3600
                 should_close, reason, close_price = analyze_position(
-                    pos, row, atr, hours_open, signal, conf, max_hours=max_hours, close_conf=0.45
+                    pos, row, atr, hours_open, signal, conf, max_hours=max_hours, close_conf=threshold
                 )
                 if should_close:
                     pnl = (pos["notional"] - pos["closed_notional"]) * (close_price / pos["entry"] - 1) * (1 if pos["type"] == "long" else -1)
@@ -284,7 +284,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, default="training/output/model_kraken")
     parser.add_argument("--data", type=str, default="training/output/data_kraken")
-    parser.add_argument("--threshold", type=float, default=0.45)
+    parser.add_argument("--threshold", type=float, default=0.55)
     parser.add_argument("--max-hours", type=float, default=8.0)
     parser.add_argument("--max-daily", type=int, default=3)
     parser.add_argument("--start", type=str, default=None)
@@ -304,6 +304,7 @@ def main():
             logger.warning(f"Faltan datos para {pair}")
             continue
         df = pd.read_parquet(f)
+        df["timestamp"] = pd.to_datetime(df["timestamp"])
         df = df[df["timestamp"] <= pd.Timestamp(args.end)].reset_index(drop=True)
         data[pair] = df
         logger.info(f"{pair}: {len(df)} velas ({df['timestamp'].min()} .. {df['timestamp'].max()})")

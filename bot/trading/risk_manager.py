@@ -307,7 +307,7 @@ class RiskManager:
         """
         confidence = signal.get("confidence", 0) if signal else 0.5
         min_conf = config.risk.min_confidence_threshold
-        max_conf = 0.30
+        max_conf = 0.60
         conf_multiplier = max(0.5, min(1.5, (confidence - min_conf) / (max_conf - min_conf + 1e-10)))
 
         base_risk = config.risk.max_risk_per_trade_pct

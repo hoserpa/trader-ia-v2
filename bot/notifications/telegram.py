@@ -5,8 +5,17 @@ from loguru import logger
 from config import config
 
 
+def _fmt_price(price: float) -> str:
+    if price >= 1000:
+        return f"{price:.0f}"
+    return f"{price:.2f}"
+
+
+def _pair_short(pair: str) -> str:
+    return pair.split("/")[0] if "/" in pair else pair
+
+
 def _format_duration(entry_ts: str) -> str:
-    """Calcula duración desde entrada hasta ahora."""
     if not entry_ts:
         return "—"
     try:
@@ -35,7 +44,7 @@ class TelegramNotifier:
     async def _send(self, text: str, priority: str = "normal") -> None:
         if not self.enabled or not self.token:
             return
-        
+
         cooldown_key = f"{priority}_{hash(text[:50])}"
         now = __import__("time").time()
         if priority == "warning":
@@ -43,7 +52,7 @@ class TelegramNotifier:
                 if now - self._last_warning_time[cooldown_key] < self._warning_cooldown:
                     return
             self._last_warning_time[cooldown_key] = now
-        
+
         url = self.BASE_URL.format(token=self.token)
         try:
             async with httpx.AsyncClient(timeout=10) as client:
@@ -67,33 +76,27 @@ class TelegramNotifier:
     async def notify_trade(self, trade: dict, signal: dict, portfolio_state: dict | None = None) -> None:
         is_short = trade.get("side") == "short"
         emoji = "🔴" if is_short else "🟢"
-        label = "SHORT" if is_short else "COMPRA"
-        pair = trade["pair"].replace("/", "")
+        label = "APOSTADO A BAJA" if is_short else "COMPRADO"
+        pair = _pair_short(trade["pair"])
         balance = portfolio_state.get("balance_eur", 0) if portfolio_state else 0
-        price = trade["price"]
-        crypto = trade["amount_crypto"]
-        sl = trade.get("stop_loss", 0)
-        tp = trade.get("take_profit", 0)
+        price = _fmt_price(trade["price"])
+        amount_eur = trade.get("amount_eur", 0)
 
-        line1 = f"{emoji} *{label}* {pair} {price:.2f}€ · {crypto:.6g} {pair.split('/')[0]}"
-        line2 = f"SL {sl:.2f} TP {tp:.2f} · Balance {balance:.2f}€"
-        text = f"{line1}\n{line2}"
+        text = f"{emoji} {label} {pair} {amount_eur:.0f}€ a {price}€ · Efectivo: {balance:.0f}€"
         await self._send(text)
 
     async def notify_position_closed(self, trade: dict, pnl_eur: float, position: dict, portfolio_state: dict | None = None) -> None:
-        emoji = "💚" if pnl_eur >= 0 else "🔴"
-        sign = "+" if pnl_eur >= 0 else ""
-        reason = trade.get("close_reason", "signal")
+        if pnl_eur >= 0:
+            emoji = "💰"
+            label = "GANANCIA"
+        else:
+            emoji = "🔻"
+            label = "PÉRDIDA"
         duration = _format_duration(position.get("entry_timestamp", "") if position else trade.get("entry_timestamp", ""))
-        is_short_close = trade.get("side") == "buy_to_close"
-        label = "COBERTURA" if is_short_close else "VENTA"
-        pair = trade["pair"].replace("/", "")
+        pair = _pair_short(trade["pair"])
         balance = portfolio_state.get("balance_eur", 0) if portfolio_state else 0
-        pnl_pct = trade.get("pnl_pct", 0)
 
-        line1 = f"{emoji} *{label}* {pair} {sign}{pnl_eur:.2f}€ ({sign}{pnl_pct:.2f}%) · {duration}"
-        line2 = f"{reason} · Balance {balance:.2f}€"
-        text = f"{line1}\n{line2}"
+        text = f"{emoji} {label} {pnl_eur:+.2f}€ en {pair} · {duration} · Efectivo: {balance:.2f}€"
         await self._send(text)
 
     async def notify_error(self, error: str) -> None:

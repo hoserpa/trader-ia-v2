@@ -23,10 +23,12 @@ def setup_logging():
 async def main():
     setup_logging()
     logger.info("=" * 60)
-    logger.info(f"🤖 Crypto Trader Bot arrancando...")
+    logger.info(f"Crypto Grid Bot arrancando...")
     logger.info(f"   Modo: {config.trading.mode.upper()}")
     logger.info(f"   Pares: {', '.join(config.trading.pairs)}")
     logger.info(f"   Timeframe: {config.trading.timeframe}")
+    logger.info(f"   Grid: ATR-adaptive={config.grid.atr_adaptive}, "
+                f"capital={config.grid.capital_pct:.0%}, leverage={config.grid.leverage}x")
     logger.info("=" * 60)
 
     config.validate()

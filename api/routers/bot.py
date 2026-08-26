@@ -32,13 +32,14 @@ async def bot_config():
         "mode": config.trading.mode,
         "pairs": config.trading.pairs,
         "timeframe": config.trading.timeframe,
-        "analysis_interval": config.trading.analysis_interval,
-        "risk": {
-            "max_risk_per_trade_pct": config.risk.max_risk_per_trade_pct,
-            "max_open_positions": config.risk.max_open_positions,
-            "buy_threshold": config.risk.buy_threshold,
-            "sell_threshold": config.risk.sell_threshold,
-            "stop_loss_atr_multiplier": config.risk.stop_loss_atr_multiplier,
-            "take_profit_atr_multiplier": config.risk.take_profit_atr_multiplier,
+        "grid": {
+            "enabled": config.grid.enabled,
+            "leverage": config.grid.leverage,
+            "levels": config.grid.levels_per_pair,
+            "capital_pct": config.grid.capital_pct,
+            "range_pct": config.grid.range_pct,
+            "atr_adaptive": config.grid.atr_adaptive,
+            "poll_interval": config.grid.poll_interval,
+            "stop_loss_pct": config.grid.stop_loss_pct,
         }
     }

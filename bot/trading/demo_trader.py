@@ -17,7 +17,7 @@ class DemoTrader:
 
     async def execute_buy(self, pair: str, amount_eur: float, current_price: float, atr: float, db=None) -> dict:
         """Simula una compra. Retorna el dict del trade creado."""
-        fee = amount_eur * config.exchange.taker_fee
+        fee = amount_eur * config.exchange.maker_fee
         net_eur = amount_eur - fee
         amount_crypto = net_eur / current_price
         stop_loss = self.risk.calculate_stop_loss(current_price, atr)
@@ -96,7 +96,7 @@ class DemoTrader:
             position_id = position.id
 
         gross_eur = amount_crypto * current_price
-        fee = gross_eur * config.exchange.taker_fee
+        fee = gross_eur * config.exchange.maker_fee
         net_eur = gross_eur - fee
         invested_part = amount_eur_invested * fraction
         pnl_eur = net_eur - invested_part
@@ -134,7 +134,7 @@ class DemoTrader:
                     pos.amount_eur_invested = remaining_invested
                     db.commit()
             else:
-                crud.close_position(db, position_id, current_price, reason)
+                crud.close_position(db, position_id, current_price, reason, close_fee=fee)
 
             trade = crud.create_trade(db, {
                 "position_id": position_id,
@@ -186,7 +186,7 @@ class DemoTrader:
             position_id = position.id
         
         gross_eur = amount_crypto * current_price
-        fee = gross_eur * config.exchange.taker_fee
+        fee = gross_eur * config.exchange.maker_fee
         net_eur = gross_eur - fee
         pnl_eur = net_eur - amount_eur_invested
 
@@ -200,7 +200,7 @@ class DemoTrader:
             close_db = False
 
         try:
-            closed = crud.close_position(db, position_id, current_price, reason)
+            closed = crud.close_position(db, position_id, current_price, reason, close_fee=fee)
             trade = crud.create_trade(db, {
                 "position_id": position_id,
                 "pair": pair,
@@ -237,7 +237,7 @@ class DemoTrader:
     async def execute_short(self, pair: str, amount_eur: float, current_price: float, atr: float, db=None) -> dict:
         """Simula una venta corta (short). Retorna el dict del trade."""
         gross_eur = amount_eur
-        fee = gross_eur * config.exchange.taker_fee
+        fee = gross_eur * config.exchange.maker_fee
         net_eur = gross_eur - fee
         amount_crypto = net_eur / current_price
         stop_loss = self.risk.calculate_stop_loss(current_price, atr, position_type="short")
@@ -318,7 +318,7 @@ class DemoTrader:
             position_id = position.id
 
         gross_eur = amount_crypto * current_price
-        fee = gross_eur * config.exchange.taker_fee
+        fee = gross_eur * config.exchange.maker_fee
         total_cost = gross_eur + fee
         pnl_eur = amount_eur_invested - total_cost
 
@@ -332,7 +332,7 @@ class DemoTrader:
             close_db = False
 
         try:
-            closed = crud.close_position(db, position_id, current_price, reason)
+            closed = crud.close_position(db, position_id, current_price, reason, close_fee=fee)
             trade = crud.create_trade(db, {
                 "position_id": position_id,
                 "pair": pair,
@@ -382,7 +382,7 @@ class DemoTrader:
             position_id = position.id
 
         gross_eur = amount_crypto * current_price
-        fee = gross_eur * config.exchange.taker_fee
+        fee = gross_eur * config.exchange.maker_fee
         total_cost = gross_eur + fee
         invested_part = amount_eur_invested * fraction
         pnl_eur = invested_part - total_cost
@@ -421,7 +421,7 @@ class DemoTrader:
                     pos.amount_eur_invested = remaining_invested
                     db.commit()
             else:
-                crud.close_position(db, position_id, current_price, reason)
+                crud.close_position(db, position_id, current_price, reason, close_fee=fee)
 
             trade = crud.create_trade(db, {
                 "position_id": position_id,

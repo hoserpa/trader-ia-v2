@@ -144,6 +144,7 @@ def train_lightgbm(X_train, y_train, X_val, y_val):
         colsample_bytree=0.8,
         reg_alpha=0.01,
         reg_lambda=0.01,
+        class_weight=None,
         n_jobs=2,
         verbose=-1,
         random_state=42,
@@ -197,7 +198,7 @@ def optimize_with_optuna(X_train, y_train, X_val, y_val, n_trials: int = 30):
         for probs in proba:
             max_idx = np.argmax(probs)
             max_prob = probs[max_idx]
-            if max_prob >= 0.60:
+            if max_prob >= 0.55:
                 predictions.append(max_idx)
             else:
                 predictions.append(1)
@@ -267,7 +268,15 @@ def walk_forward_validation(df: pd.DataFrame, n_splits: int = 4, label_col: str 
         model = train_lightgbm(X_train_bal, y_train_bal, X_val_scaled, y_val)
 
         proba = model.predict_proba(X_val_scaled)
-        predictions = np.argmax(proba, axis=1)
+        predictions = []
+        for probs in proba:
+            max_idx = np.argmax(probs)
+            max_prob = probs[max_idx]
+            if max_prob >= 0.55:
+                predictions.append(max_idx)
+            else:
+                predictions.append(1)
+        predictions = np.array(predictions)
 
         metrics = {
             "fold": fold + 1,
@@ -302,7 +311,7 @@ def walk_forward_validation(df: pd.DataFrame, n_splits: int = 4, label_col: str 
     return fold_metrics, avg_metrics
 
 
-def evaluate_model(model, X, y, threshold: float = 0.60):
+def evaluate_model(model, X, y, threshold: float = 0.55):
     """Evalúa modelo con threshold personalizado."""
     proba = model.predict_proba(X)
     predictions = []
@@ -401,7 +410,15 @@ def main():
 
     logger.info("\nClassification Report (test):")
     proba_test = model.predict_proba(X_test)
-    predictions_test = np.argmax(proba_test, axis=1)
+    predictions_test = []
+    for probs in proba_test:
+        max_idx = np.argmax(probs)
+        max_prob = probs[max_idx]
+        if max_prob >= 0.55:
+            predictions_test.append(max_idx)
+        else:
+            predictions_test.append(1)
+    predictions_test = np.array(predictions_test)
     logger.info("\n" + classification_report(y_test, predictions_test, target_names=["SELL", "HOLD", "BUY"]))
 
     model_path = output_dir / "trained_model.pkl"

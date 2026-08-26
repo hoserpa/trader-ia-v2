@@ -63,7 +63,7 @@ class TradingConfig:
     analysis_interval: int = field(default_factory=lambda: int(os.getenv("ANALYSIS_INTERVAL_SECONDS", "600")))
     invert_ml_signals: bool = field(default_factory=lambda: os.getenv("INVERT_ML_SIGNALS", "false").lower() == "true")
     timeframe: str = field(default_factory=lambda: _normalize_timeframe(os.getenv("MODEL_TIMEFRAME", "15m")))
-    candles_required: int = field(default_factory=lambda: int(os.getenv("MODEL_CANDLES_REQUIRED", "200")))
+    candles_required: int = field(default_factory=lambda: int(os.getenv("MODEL_CANDLES_REQUIRED", "350")))
 
     def is_demo(self) -> bool:
         return self.mode == "demo"
@@ -106,15 +106,20 @@ class RiskConfig:
 
 @dataclass
 class GridConfig:
-    enabled: bool = field(default_factory=lambda: os.getenv("GRID_ENABLED", "false").lower() == "true")
+    enabled: bool = field(default_factory=lambda: os.getenv("GRID_ENABLED", "true").lower() == "true")
     pairs: list = field(default_factory=lambda: os.getenv("GRID_PAIRS", "BTC/EUR,ETH/EUR,SOL/EUR").split(","))
-    leverage: int = field(default_factory=lambda: int(os.getenv("GRID_LEVERAGE", "2")))
-    levels_per_pair: int = field(default_factory=lambda: int(os.getenv("GRID_LEVELS", "20")))
-    capital_pct: float = field(default_factory=lambda: float(os.getenv("GRID_CAPITAL_PCT", "0.7")))
-    range_pct: float = field(default_factory=lambda: float(os.getenv("GRID_RANGE_PCT", "0.10")))
-    rebalance_threshold: float = field(default_factory=lambda: float(os.getenv("GRID_REBALANCE_THRESHOLD", "0.15")))
-    stop_loss_pct: float = field(default_factory=lambda: float(os.getenv("GRID_STOP_LOSS_PCT", "0.10")))
-    poll_interval: int = field(default_factory=lambda: int(os.getenv("GRID_POLL_INTERVAL", "30")))
+    leverage: int = field(default_factory=lambda: int(os.getenv("GRID_LEVERAGE", "1")))
+    levels_per_pair: int = field(default_factory=lambda: int(os.getenv("GRID_LEVELS", "15")))
+    capital_pct: float = field(default_factory=lambda: float(os.getenv("GRID_CAPITAL_PCT", "0.90")))
+    range_pct: float = field(default_factory=lambda: float(os.getenv("GRID_RANGE_PCT", "0.05")))
+    rebalance_threshold: float = field(default_factory=lambda: float(os.getenv("GRID_REBALANCE_THRESHOLD", "0.08")))
+    stop_loss_pct: float = field(default_factory=lambda: float(os.getenv("GRID_STOP_LOSS_PCT", "0.05")))
+    poll_interval: int = field(default_factory=lambda: int(os.getenv("GRID_POLL_INTERVAL", "15")))
+    atr_adaptive: bool = field(default_factory=lambda: os.getenv("GRID_ATR_ADAPTIVE", "true").lower() == "true")
+    atr_range_mult: float = field(default_factory=lambda: float(os.getenv("GRID_ATR_RANGE_MULT", "4")))
+    atr_spacing_divisor: float = field(default_factory=lambda: float(os.getenv("GRID_ATR_SPACING_DIVISOR", "3")))
+    max_levels: int = field(default_factory=lambda: int(os.getenv("GRID_MAX_LEVELS", "15")))
+    price_stale_sec: int = field(default_factory=lambda: int(os.getenv("GRID_PRICE_STALE_SEC", "300")))
 
 
 @dataclass

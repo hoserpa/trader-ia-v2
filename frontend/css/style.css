@@ -12,6 +12,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 .badge-buy { background: #2d5a3d; color: #4ade80; }
 .badge-sell { background: #5a2d2d; color: #f87171; }
 .badge-hold { background: #3d3d5a; color: #a5b4fc; }
+.badge-warn { background: #5a4d2d; color: #fbbf24; }
 .status-dot { width: 10px; height: 10px; border-radius: 50%; }
 .dot-green { background: #4ade80; }
 .dot-red { background: #f87171; }

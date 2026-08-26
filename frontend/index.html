@@ -136,13 +136,13 @@
   </section>
 
   <section v-if="gridState.enabled" class="grid-section">
-    <h2>Grid Trading <span class="badge" :class="gridState.running ? 'badge-buy' : 'badge-sell'">{{ gridState.running ? 'ACTIVO' : 'DETENIDO' }}</span></h2>
+    <h2>Grid Trading <span class="badge" :class="gridState.running ? 'badge-buy' : 'badge-sell'">{{ gridState.running ? 'ACTIVO' : 'DETENIDO' }}</span> <span class="badge badge-warn">SIMULACIÓN — no afecta al saldo</span></h2>
     <div class="grid-summary">
       <div class="grid-pair-block" v-for="(g, pair) in gridState.pairs" :key="pair">
         <div class="grid-pair-header">
           <strong>{{ pair }}</strong>
           <span class="grid-pnl" :class="g.pnl_eur >= 0 ? 'positive' : 'negative'">
-            {{ g.pnl_eur >= 0 ? '+' : '' }}{{ formatPrice(g.pnl_eur) }}€ ({{ g.pnl_pct?.toFixed(2) }}%)
+            {{ g.pnl_eur >= 0 ? '+' : '' }}{{ formatPrice(g.pnl_eur) }}€ ({{ g.pnl_pct?.toFixed(2) }}%) <span class="badge badge-warn">simulado</span>
           </span>
         </div>
         <div class="grid-info">

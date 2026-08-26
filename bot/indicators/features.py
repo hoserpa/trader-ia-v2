@@ -20,6 +20,17 @@ HTF_COLS = [
 ]
 
 
+def _safe_htf_float(val, default: float = 0.0) -> float:
+    """Safe float extraction for HTF features, handling None and NaN."""
+    if val is None:
+        return default
+    try:
+        f = float(val)
+        return default if (f != f) else f  # NaN check: x != x
+    except (TypeError, ValueError):
+        return default
+
+
 def resample_15m_to_htf(df: pd.DataFrame, freq: str) -> pd.DataFrame:
     """Resamplea velas 15m a una timeframe mayor (1h, 4h)."""
     cols = [c for c in ["timestamp", "open", "high", "low", "close", "volume"] if c in df.columns]
@@ -36,25 +47,43 @@ def resample_15m_to_htf(df: pd.DataFrame, freq: str) -> pd.DataFrame:
 def build_htf_features_for_live(candles_15m: pd.DataFrame, pair: str) -> dict:
     """Genera features HTF (1h/4h) a partir de velas 15m para inferencia live.
 
+    Extrae indicadores directamente del DataFrame HTF (sin pasar por FeatureBuilder
+    que requiere MIN_ROWS=55). Necesita al menos 20 velas HTF para MACD/RSI.
+
     Returns: dict con keys h1_rsi_14, h1_macd_hist, etc. Valores 0.0 si no disponibles.
     """
+    MIN_HTF_CANDLES = 20
     htf_features = {}
     for freq, prefix in [("1h", "h1_"), ("4h", "h4_")]:
         try:
             df_htf = resample_15m_to_htf(candles_15m, freq)
-            if len(df_htf) < 55:
+            if len(df_htf) < MIN_HTF_CANDLES:
+                logger.debug(f"HTF {freq}: {len(df_htf)} < {MIN_HTF_CANDLES}, zero-filling")
                 for col in HTF_COLS:
                     htf_features[f"{prefix}{col}"] = 0.0
                 continue
             df_htf = calculate_indicators(df_htf)
-            builder = FeatureBuilder()
-            feat = builder.build_features(df_htf, pair=pair)
-            if feat is not None:
-                for col in HTF_COLS:
-                    htf_features[f"{prefix}{col}"] = float(feat.get(col, 0.0))
-            else:
+            last = df_htf.iloc[-1]
+            price = last["close"]
+            if price <= 0 or not np.isfinite(price):
                 for col in HTF_COLS:
                     htf_features[f"{prefix}{col}"] = 0.0
+                continue
+            htf_features[f"{prefix}rsi_14"] = _safe_htf_float(last.get("rsi_14"), 50.0) / 100.0
+            htf_features[f"{prefix}macd_hist"] = _safe_htf_float(last.get("macd_hist"), 0.0) / (price + 1e-10)
+            htf_features[f"{prefix}bb_pct_b"] = _safe_htf_float(last.get("bb_pct_b"), 0.5)
+            ema21_val = _safe_htf_float(last.get("ema_21"), price)
+            htf_features[f"{prefix}price_vs_ema21"] = (price / ema21_val - 1.0) if price > 0 and ema21_val > 0 else 0.0
+            atr = _safe_htf_float(last.get("atr_14"), 0.0)
+            htf_features[f"{prefix}atr_pct"] = atr / price if price > 0 else 0.0
+            htf_features[f"{prefix}volume_ratio"] = min(_safe_htf_float(last.get("volume_ratio"), 1.0), 10.0)
+            atr_pct = htf_features[f"{prefix}atr_pct"]
+            if atr_pct < 0.01:
+                htf_features[f"{prefix}volatility_regime"] = 0.0
+            elif atr_pct < 0.03:
+                htf_features[f"{prefix}volatility_regime"] = 0.5
+            else:
+                htf_features[f"{prefix}volatility_regime"] = 1.0
         except Exception as e:
             logger.warning(f"HTF features {freq} failed for {pair}: {e}")
             for col in HTF_COLS:

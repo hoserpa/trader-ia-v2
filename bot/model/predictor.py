@@ -66,8 +66,14 @@ class ModelPredictor:
         try:
             if self.feature_names:
                 feature_vector = []
+                missing = []
                 for name in self.feature_names:
-                    feature_vector.append(features.get(name, 0.0))
+                    val = features.get(name, None)
+                    if val is None:
+                        missing.append(name)
+                    feature_vector.append(val if val is not None else 0.0)
+                if missing:
+                    logger.warning(f"Features missing (zero-filled): {missing[:5]}{'...' if len(missing) > 5 else ''}")
                 X = np.array([feature_vector])
             else:
                 X = features.values.reshape(1, -1)
@@ -86,7 +92,7 @@ class ModelPredictor:
                 buy_sell_diff = p_buy - p_sell
 
                 # Regla alineada con el entrenamiento: argmax con umbral de confianza.
-                # El modelo fue evaluado con argmax + threshold (0.60); emitir BUY/SELL
+                # El modelo fue evaluado con argmax + threshold (0.55); emitir BUY/SELL
                 # solo si la probabilidad máxima supera el umbral, si no -> HOLD.
                 # El antiguo truco (diff > 0.005) disparaba señal casi siempre y
                 # anulaba la calibración del modelo (sobrerreacción).
