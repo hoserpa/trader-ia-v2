@@ -1,5 +1,5 @@
 """Notificaciones via Telegram Bot API."""
-from datetime import datetime
+from datetime import datetime, timezone
 import httpx
 from loguru import logger
 from config import config
@@ -15,18 +15,34 @@ def _pair_short(pair: str) -> str:
     return pair.split("/")[0] if "/" in pair else pair
 
 
+def _format_duration_between(start_ts: str, end_ts: str) -> str:
+    """Formatea la duración entre dos timestamps ISO (consciente de TZ)."""
+    if not start_ts or not end_ts:
+        return "—"
+    try:
+        start = datetime.fromisoformat(start_ts.replace("Z", "+00:00"))
+        end = datetime.fromisoformat(end_ts.replace("Z", "+00:00"))
+        delta = end - start
+        seconds = int(delta.total_seconds())
+        if seconds < 0:
+            seconds = 0
+        hours, remainder = divmod(seconds, 3600)
+        minutes, _ = divmod(remainder, 60)
+        if hours > 0:
+            return f"{hours}h {minutes}m"
+        if minutes > 0:
+            return f"{minutes} min"
+        return "<1m"
+    except Exception:
+        return "—"
+
+
 def _format_duration(entry_ts: str) -> str:
     if not entry_ts:
         return "—"
     try:
-        entry = datetime.fromisoformat(entry_ts.replace("Z", "+00:00"))
-        now = datetime.utcnow()
-        delta = now - entry.replace(tzinfo=None)
-        hours, remainder = divmod(int(delta.total_seconds()), 3600)
-        minutes, _ = divmod(remainder, 60)
-        if hours > 0:
-            return f"{hours}h {minutes}m"
-        return f"{minutes} min"
+        now = datetime.now(timezone.utc).isoformat()
+        return _format_duration_between(entry_ts, now)
     except Exception:
         return "—"
 
@@ -38,20 +54,22 @@ class TelegramNotifier:
         self.enabled = config.telegram.enabled
         self.token = config.telegram.bot_token
         self.chat_id = config.telegram.chat_id
-        self._last_warning_time = {}
+        self._last_send_time = {}
         self._warning_cooldown = 300
+        self._error_cooldown = 300
 
-    async def _send(self, text: str, priority: str = "normal") -> None:
+    async def _send(self, text: str, priority: str = "normal", warn_key: str = None) -> None:
         if not self.enabled or not self.token:
             return
 
-        cooldown_key = f"{priority}_{hash(text[:50])}"
-        now = __import__("time").time()
-        if priority == "warning":
-            if cooldown_key in self._last_warning_time:
-                if now - self._last_warning_time[cooldown_key] < self._warning_cooldown:
-                    return
-            self._last_warning_time[cooldown_key] = now
+        cooldown = {"warning": self._warning_cooldown, "error": self._error_cooldown}.get(priority, 0)
+        if cooldown > 0:
+            category = warn_key or f"text:{hash(text[:50])}"
+            key = f"{priority}:{category}"
+            now = __import__("time").time()
+            if key in self._last_send_time and now - self._last_send_time[key] < cooldown:
+                return
+            self._last_send_time[key] = now
 
         url = self.BASE_URL.format(token=self.token)
         try:
@@ -103,11 +121,40 @@ class TelegramNotifier:
         text = f"🔴 *ERROR* `{error[:300]}`"
         await self._send(text, priority="error")
 
-    async def notify_warning(self, message: str) -> None:
+    async def notify_warning(self, message: str, warn_key: str = None) -> None:
         text = f"⚠️ *AVISO* {message}"
-        await self._send(text, priority="warning")
+        await self._send(text, priority="warning", warn_key=warn_key)
 
-    async def send_daily_summary(self, portfolio: dict, stats: dict) -> None:
+    async def notify_grid_fill(
+        self,
+        pair: str,
+        side: str,
+        price: float,
+        amount: float,
+        fee_eur: float,
+        counter_price: float = None,
+    ) -> None:
+        """Notifica cada pierna del grid (simulado) que se llena."""
+        pair_s = _pair_short(pair)
+        is_sell = side == "sell"
+        emoji = "🔴" if is_sell else "🟢"
+        label = "VENTA" if is_sell else "COMPRA"
+        text = f"{emoji} *GRID (simulado)* {label} {pair_s} {amount:.8f} @ {_fmt_price(price)}€ · Comisión {fee_eur:.2f}€"
+        if counter_price:
+            text += f" · → {'BUY' if is_sell else 'SELL'} {_fmt_price(counter_price)}€"
+        await self._send(text)
+
+    async def notify_grid_cycle(self, pair: str, pnl_net: float, fees_total: float, duration: str) -> None:
+        """Notifica un ciclo completo del grid con PnL neto de comisiones."""
+        emoji = "💰" if pnl_net >= 0 else "🔻"
+        label = "GANANCIA CICLO GRID" if pnl_net >= 0 else "PÉRDIDA CICLO GRID"
+        text = (
+            f"{emoji} *{label}* {_pair_short(pair)} · PnL neto {pnl_net:+.2f}€ "
+            f"· Comisiones {fees_total:.2f}€ · {duration}"
+        )
+        await self._send(text)
+
+    async def send_daily_summary(self, portfolio: dict, stats: dict, grid: dict | None = None) -> None:
         mode = "DEMO" if config.trading.is_demo() else "REAL"
         pnl = portfolio.get("total_pnl_eur", 0)
         pnl_pct = portfolio.get("total_pnl_pct", 0)
@@ -126,4 +173,12 @@ class TelegramNotifier:
             f"📊 *Resumen* `{mode}` · {val:.2f}€ · {pnl_emoji} PnL {pnl:+.2f}€ ({pnl_pct:+.2f}%)\n"
             f"Hoy {trades} trades ({wins}✅) · WR {win_rate:.0f}% · {open_pos} open · Errores {errors}"
         )
+        if grid:
+            grid_pnl = grid.get("total_pnl_eur", 0)
+            grid_trades = grid.get("total_grid_trades", 0)
+            grid_fees = grid.get("total_fees_eur", 0)
+            grid_emoji = "📈" if grid_pnl >= 0 else "📉"
+            text += (
+                f"\nGrid {grid_emoji} {grid_pnl:+.2f}€ ({grid_trades} ciclos) · Comisiones {grid_fees:.2f}€"
+            )
         await self._send(text)

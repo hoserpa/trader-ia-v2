@@ -28,7 +28,7 @@ from trading.real_trader import RealTrader
 from strategies.grid_strategy import GridStrategy
 from config_service import apply_overrides
 from notifications.telegram import TelegramNotifier
-from database.crud import save_portfolio_snapshot
+from database.crud import save_portfolio_snapshot, get_stats_summary, get_open_positions
 from database.init_db import SessionLocal
 
 
@@ -61,11 +61,14 @@ class TradingEngine:
         self.collector = DataCollector(redis_client)
         self.portfolio = Portfolio(redis_client)
         self.telegram = TelegramNotifier()
-        self.grid_strategy = GridStrategy(redis_client, self.portfolio)
+        self.grid_strategy = GridStrategy(
+            redis_client, self.portfolio, telegram=self.telegram
+        )
         self._running = False
         self._status = "stopped"
         self._consecutive_errors = 0
         self._peak_portfolio = 0
+        self._drawdown_notified = False
         self._lock_key = "bot:instance_lock"
         self._lock_value = ""
         self._lock_heartbeat_task: asyncio.Task | None = None
@@ -205,15 +208,18 @@ class TradingEngine:
         portfolio_state = await self.portfolio.update_valuations(prices)
         grid_state = self.grid_strategy.get_state()
 
-        summary = {
-            "portfolio": portfolio_state,
-            "grid": {
-                "total_pnl_eur": grid_state.get("total_pnl_eur", 0),
-                "total_trades": grid_state.get("total_grid_trades", 0),
-            },
+        with SessionLocal() as db:
+            stats = get_stats_summary(db)
+            open_positions = get_open_positions(db)
+        portfolio_state["open_positions"] = len(open_positions)
+
+        grid_summary = {
+            "total_pnl_eur": grid_state.get("total_pnl_eur", 0),
+            "total_grid_trades": grid_state.get("total_grid_trades", 0),
+            "total_fees_eur": grid_state.get("total_fees_eur", 0),
         }
 
-        await self.telegram.send_daily_summary(portfolio_state, summary)
+        await self.telegram.send_daily_summary(portfolio_state, stats, grid=grid_summary)
         await self.redis.set(today_key, today_str)
 
     async def _check_drawdown(self) -> None:
@@ -222,13 +228,19 @@ class TradingEngine:
 
         if current_value > self._peak_portfolio:
             self._peak_portfolio = current_value
+            self._drawdown_notified = False
 
         if self._peak_portfolio > 0:
             drawdown = (self._peak_portfolio - current_value) / self._peak_portfolio
             if drawdown > 0.10:
-                await self.telegram.notify_warning(
-                    f"Drawdown {drawdown*100:.1f}% . Peak {self._peak_portfolio:.2f}e -> Now {current_value:.2f}e"
-                )
+                if not self._drawdown_notified:
+                    await self.telegram.notify_warning(
+                        f"Drawdown {drawdown*100:.1f}% · Peak {self._peak_portfolio:.2f}€ -> Now {current_value:.2f}€",
+                        warn_key="drawdown",
+                    )
+                    self._drawdown_notified = True
+            else:
+                self._drawdown_notified = False
 
     async def _save_portfolio_snapshot(self) -> None:
         await self.portfolio.refresh_if_changed()

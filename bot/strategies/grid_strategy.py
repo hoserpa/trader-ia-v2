@@ -12,6 +12,7 @@ from typing import Optional
 from loguru import logger
 from config import config
 from trading.portfolio import Portfolio
+from notifications.telegram import _format_duration_between
 
 REDIS_GRID_STATE_KEY = "grid:state:{pair}"
 REDIS_GRID_GLOBAL_KEY = "grid:global"
@@ -22,9 +23,10 @@ MAX_FILLED_HISTORY = 50
 class GridStrategy:
     """Grid trading con soporte ATR-adaptive."""
 
-    def __init__(self, redis_client, portfolio: Portfolio):
+    def __init__(self, redis_client, portfolio: Portfolio, telegram=None):
         self.redis = redis_client
         self.portfolio = portfolio
+        self.telegram = telegram
         self._running = False
         self._state: dict[str, dict] = {}
         self._global_state: dict = {}
@@ -260,7 +262,11 @@ class GridStrategy:
         await self._save_pair_state(pair)
 
     async def _handle_fill(self, pair: str, level: dict, fill_price: float):
-        """Marca orden como llena, coloca counter-order y acredita PnL neto de comisiones."""
+        """Marca orden como llena, coloca counter-order y acredita PnL neto de comisiones.
+
+        Cada fill notifica su detalle y, si completa un ciclo (pierna contraria),
+        notifica el PnL neto y las comisiones del ciclo.
+        """
         level["status"] = "filled"
         level["filled_at"] = datetime.now(timezone.utc).isoformat()
         level["filled_price"] = fill_price
@@ -270,10 +276,13 @@ class GridStrategy:
         amount = level["amount"]
         fee_rate = config.exchange.maker_fee
         fee_eur = fill_price * amount * fee_rate
+        level["fee_eur"] = fee_eur
         pnl = 0.0
+        counter_price = None
 
         if level["side"] == "buy":
             sell_price = level["price"] + spacing
+            counter_price = sell_price
             pnl = (entry_price - fill_price) * amount - fee_eur
             new_level = {
                 "id": f"{level['id']}_sell_{len(self._state[pair]['levels'])}",
@@ -285,6 +294,8 @@ class GridStrategy:
                 "status": "open",
                 "filled_at": None,
                 "filled_price": None,
+                "opened_at": datetime.now(timezone.utc).isoformat(),
+                "fee_eur_opening": fee_eur,
             }
             self._state[pair]["levels"].append(new_level)
             logger.info(
@@ -293,6 +304,7 @@ class GridStrategy:
             )
         else:
             buy_price = level["price"] - spacing
+            counter_price = buy_price
             pnl = (fill_price - entry_price) * amount - fee_eur
             new_level = {
                 "id": f"{level['id']}_buy_{len(self._state[pair]['levels'])}",
@@ -304,6 +316,8 @@ class GridStrategy:
                 "status": "open",
                 "filled_at": None,
                 "filled_price": None,
+                "opened_at": datetime.now(timezone.utc).isoformat(),
+                "fee_eur_opening": fee_eur,
             }
             self._state[pair]["levels"].append(new_level)
             logger.info(
@@ -333,6 +347,19 @@ class GridStrategy:
             self._global_state.get("total_grid_trades", 0) + 1
         )
         await self._save_global_state()
+
+        if self.telegram:
+            await self.telegram.notify_grid_fill(
+                pair, level["side"], fill_price, amount, fee_eur,
+                counter_price=counter_price,
+            )
+            is_cycle_close = isinstance(level.get("id"), str)
+            if is_cycle_close:
+                fees_total = fee_eur + level.get("fee_eur_opening", 0)
+                duration = _format_duration_between(
+                    level.get("opened_at", ""), level.get("filled_at", "")
+                )
+                await self.telegram.notify_grid_cycle(pair, pnl, fees_total, duration)
 
     def _cleanup_filled_levels(self, pair: str):
         """Elimina filled levels antiguos para evitar crecimiento indefinido."""
