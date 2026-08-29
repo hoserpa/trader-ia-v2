@@ -152,6 +152,7 @@
           <div class="grid-info-row"><span>Apalancamiento</span>{{ g.leverage }}x</div>
           <div class="grid-info-row"><span>Órdenes</span>{{ g.open_orders }} activas / {{ g.filled_orders }} llenadas</div>
           <div class="grid-info-row"><span>Ciclos completos</span>{{ g.total_grid_trades }}</div>
+          <div class="grid-info-row"><span>Comisiones</span>{{ formatPrice(g.fees_eur) }}€</div>
           <div class="grid-info-row" v-if="g.funding_paid"><span>Funding pagado</span>{{ formatPrice(g.funding_paid) }}€</div>
         </div>
       </div>

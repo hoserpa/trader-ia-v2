@@ -50,8 +50,8 @@ class ExchangeConfig:
     name: str = field(default_factory=lambda: os.getenv("EXCHANGE", "kraken"))
     api_key: str = field(default_factory=lambda: os.getenv("KRAKEN_API_KEY", ""))
     api_secret: str = field(default_factory=lambda: os.getenv("KRAKEN_API_SECRET", ""))
-    taker_fee: float = 0.0026  # Kraken taker fee ~0.26%
-    maker_fee: float = 0.0016  # Kraken maker fee ~0.16%
+    taker_fee: float = field(default_factory=lambda: float(os.getenv("KRAKEN_TAKER_FEE", "0.0026")))  # Kraken taker fee ~0.26%
+    maker_fee: float = field(default_factory=lambda: float(os.getenv("KRAKEN_MAKER_FEE", "0.0016")))  # Kraken maker fee ~0.16%
 
 
 @dataclass
@@ -177,6 +177,10 @@ class AppConfig:
                 raise ValueError("KRAKEN_API_KEY y KRAKEN_API_SECRET son obligatorios en modo real.")
         if self.trading.mode not in ("demo", "real"):
             raise ValueError(f"TRADING_MODE inválido: {self.trading.mode}. Debe ser 'demo' o 'real'.")
+        if not (0 < self.exchange.taker_fee <= 0.05):
+            raise ValueError(f"KRAKEN_TAKER_FEE inválido: {self.exchange.taker_fee}. Debe estar entre 0 y 0.05.")
+        if not (0 < self.exchange.maker_fee <= 0.05):
+            raise ValueError(f"KRAKEN_MAKER_FEE inválido: {self.exchange.maker_fee}. Debe estar entre 0 y 0.05.")
 
 
 config = AppConfig()

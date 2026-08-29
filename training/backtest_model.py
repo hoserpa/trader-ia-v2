@@ -18,6 +18,7 @@ import joblib
 from loguru import logger
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "bot"))
+from config import config
 from indicators.technical import calculate_indicators
 from indicators.features import FeatureBuilder, PAIR_MAP
 from feature_engineering import resample_to_htf, merge_htf_features, HTF_FEATURE_COLS
@@ -25,7 +26,7 @@ from feature_engineering import resample_to_htf, merge_htf_features, HTF_FEATURE
 PAIRS = ["BTC/EUR", "ETH/EUR", "SOL/EUR"]
 DATA_DIR = Path(__file__).parent / "output" / "data_kraken"
 
-MAKER_FEE = 0.0016
+MAKER_FEE = config.exchange.maker_fee
 ANALYSIS_INTERVAL = timedelta(minutes=30)
 
 

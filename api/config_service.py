@@ -19,6 +19,8 @@ EDITABLE_FIELDS: dict[str, dict] = {
     "atr_range_mult": {"section": "grid", "type": float, "label": "ATR range multiplier", "min": 1.0, "max": 10.0, "step": 0.5},
     "atr_spacing_divisor": {"section": "grid", "type": float, "label": "ATR spacing divisor", "min": 1.0, "max": 10.0, "step": 0.5},
     "max_levels": {"section": "grid", "type": int, "label": "Max niveles", "min": 4, "max": 30},
+    "taker_fee": {"section": "exchange", "type": float, "label": "Comisión taker (Kraken)", "min": 0.0001, "max": 0.05, "step": 0.0001},
+    "maker_fee": {"section": "exchange", "type": float, "label": "Comisión maker (Kraken)", "min": 0.0001, "max": 0.05, "step": 0.0001},
 }
 
 

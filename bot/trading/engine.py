@@ -26,6 +26,7 @@ from trading.portfolio import Portfolio
 from trading.demo_trader import DemoTrader
 from trading.real_trader import RealTrader
 from strategies.grid_strategy import GridStrategy
+from config_service import apply_overrides
 from notifications.telegram import TelegramNotifier
 from database.crud import save_portfolio_snapshot
 from database.init_db import SessionLocal
@@ -102,6 +103,9 @@ class TradingEngine:
         self._status = "starting"
         await self._publish_status()
         logger.info("Iniciando motor de trading (grid-only)...")
+
+        await apply_overrides(self.redis)
+        logger.info("Config overrides aplicados (fees y parámetros en caliente).")
 
         await self.portfolio.initialize()
         self._running = True

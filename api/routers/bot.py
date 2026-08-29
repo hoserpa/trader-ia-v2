@@ -32,6 +32,11 @@ async def bot_config():
         "mode": config.trading.mode,
         "pairs": config.trading.pairs,
         "timeframe": config.trading.timeframe,
+        "exchange": {
+            "name": config.exchange.name,
+            "taker_fee": config.exchange.taker_fee,
+            "maker_fee": config.exchange.maker_fee,
+        },
         "grid": {
             "enabled": config.grid.enabled,
             "leverage": config.grid.leverage,

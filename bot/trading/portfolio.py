@@ -103,12 +103,13 @@ class Portfolio:
             price = current_prices.get(pair, pos.get("entry_price", 0))
             pos["current_price"] = price
             pos["current_value_eur"] = pos["amount_crypto"] * price
+            exit_fee = pos["current_value_eur"] * config.exchange.taker_fee
             pos_type = pos.get("position_type", "long")
             if pos_type == "short":
-                pos["pnl_eur"] = pos["amount_eur_invested"] - pos["current_value_eur"]
+                pos["pnl_eur"] = pos["amount_eur_invested"] - pos["current_value_eur"] - exit_fee
                 total -= pos["current_value_eur"]
             else:
-                pos["pnl_eur"] = pos["current_value_eur"] - pos["amount_eur_invested"]
+                pos["pnl_eur"] = pos["current_value_eur"] - pos["amount_eur_invested"] - exit_fee
                 crypto_value += pos["current_value_eur"]
                 total += pos["current_value_eur"]
             pos["pnl_pct"] = pos["pnl_eur"] / pos["amount_eur_invested"] * 100 if pos["amount_eur_invested"] > 0 else 0

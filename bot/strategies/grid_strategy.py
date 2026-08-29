@@ -252,6 +252,7 @@ class GridStrategy:
             "levels": levels,
             "pnl_eur": 0.0,
             "pnl_pct": 0.0,
+            "fees_eur": 0.0,
             "total_grid_trades": 0,
             "started_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -259,24 +260,27 @@ class GridStrategy:
         await self._save_pair_state(pair)
 
     async def _handle_fill(self, pair: str, level: dict, fill_price: float):
-        """Marca orden como llena, coloca counter-order y acredita PnL real."""
+        """Marca orden como llena, coloca counter-order y acredita PnL neto de comisiones."""
         level["status"] = "filled"
         level["filled_at"] = datetime.now(timezone.utc).isoformat()
         level["filled_price"] = fill_price
 
         spacing = self._state[pair]["spacing"]
         entry_price = level.get("entry_price", level["price"])
+        amount = level["amount"]
+        fee_rate = config.exchange.maker_fee
+        fee_eur = fill_price * amount * fee_rate
         pnl = 0.0
 
         if level["side"] == "buy":
             sell_price = level["price"] + spacing
-            pnl = (fill_price - entry_price) * level["amount"]
+            pnl = (entry_price - fill_price) * amount - fee_eur
             new_level = {
                 "id": f"{level['id']}_sell_{len(self._state[pair]['levels'])}",
                 "price": round(sell_price, 8),
                 "side": "sell",
-                "amount": level["amount"],
-                "value_eur": round(level["amount"] * sell_price, 2),
+                "amount": amount,
+                "value_eur": round(amount * sell_price, 2),
                 "entry_price": round(fill_price, 8),
                 "status": "open",
                 "filled_at": None,
@@ -285,17 +289,17 @@ class GridStrategy:
             self._state[pair]["levels"].append(new_level)
             logger.info(
                 f"Grid {pair}: BUY {entry_price:.2f}e -> SELL {sell_price:.2f}e "
-                f"(fill={fill_price:.2f}, PnL={pnl:.4f}e)"
+                f"(fill={fill_price:.2f}, PnL={pnl:.4f}e, fee={fee_eur:.4f}e)"
             )
         else:
             buy_price = level["price"] - spacing
-            pnl = (entry_price - fill_price) * level["amount"]
+            pnl = (fill_price - entry_price) * amount - fee_eur
             new_level = {
                 "id": f"{level['id']}_buy_{len(self._state[pair]['levels'])}",
                 "price": round(buy_price, 8),
                 "side": "buy",
-                "amount": level["amount"],
-                "value_eur": round(level["amount"] * buy_price, 2),
+                "amount": amount,
+                "value_eur": round(amount * buy_price, 2),
                 "entry_price": round(fill_price, 8),
                 "status": "open",
                 "filled_at": None,
@@ -304,10 +308,11 @@ class GridStrategy:
             self._state[pair]["levels"].append(new_level)
             logger.info(
                 f"Grid {pair}: SELL {entry_price:.2f}e -> BUY {buy_price:.2f}e "
-                f"(fill={fill_price:.2f}, PnL={pnl:.4f}e)"
+                f"(fill={fill_price:.2f}, PnL={pnl:.4f}e, fee={fee_eur:.4f}e)"
             )
 
         self._state[pair]["pnl_eur"] += pnl
+        self._state[pair]["fees_eur"] = self._state[pair].get("fees_eur", 0) + fee_eur
         self._state[pair]["total_grid_trades"] += 1
 
         total_capital_used = max(
@@ -320,6 +325,9 @@ class GridStrategy:
 
         self._global_state["total_pnl_eur"] = (
             self._global_state.get("total_pnl_eur", 0) + pnl
+        )
+        self._global_state["total_fees_eur"] = (
+            self._global_state.get("total_fees_eur", 0) + fee_eur
         )
         self._global_state["total_grid_trades"] = (
             self._global_state.get("total_grid_trades", 0) + 1
@@ -346,6 +354,7 @@ class GridStrategy:
                 f"Grid {pair}: precio desviado {deviation:.1%} > {threshold:.0%}, recalculando..."
             )
             pnl = self._state[pair]["pnl_eur"]
+            fees = self._state[pair].get("fees_eur", 0)
             trades_count = self._state[pair]["total_grid_trades"]
             port_state = self.portfolio.get()
             total_balance = port_state.get(
@@ -360,6 +369,7 @@ class GridStrategy:
             await self._init_pair_grid(pair, current_price, capital_per_pair)
 
             self._state[pair]["pnl_eur"] = pnl
+            self._state[pair]["fees_eur"] = fees
             self._state[pair]["total_grid_trades"] = trades_count
             total_capital_used = max(
                 sum(
@@ -435,6 +445,7 @@ class GridStrategy:
                 "filled_orders": len(filled_orders),
                 "pnl_eur": round(state["pnl_eur"], 4),
                 "pnl_pct": round(state["pnl_pct"], 2),
+                "fees_eur": round(state.get("fees_eur", 0), 4),
                 "total_grid_trades": state["total_grid_trades"],
             }
 
@@ -445,6 +456,9 @@ class GridStrategy:
             "pairs": pairs,
             "total_pnl_eur": round(
                 self._global_state.get("total_pnl_eur", 0), 4
+            ),
+            "total_fees_eur": round(
+                self._global_state.get("total_fees_eur", 0), 4
             ),
             "total_grid_trades": self._global_state.get("total_grid_trades", 0),
             "started_at": self._global_state.get("started_at", ""),
@@ -457,5 +471,7 @@ class GridStrategy:
                 "stop_loss_pct": config.grid.stop_loss_pct,
                 "poll_interval": config.grid.poll_interval,
                 "atr_adaptive": config.grid.atr_adaptive,
+                "taker_fee": config.exchange.taker_fee,
+                "maker_fee": config.exchange.maker_fee,
             },
         }

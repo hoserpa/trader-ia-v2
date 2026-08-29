@@ -7,6 +7,7 @@ import argparse
 from pathlib import Path
 import json
 import warnings
+import sys
 import numpy as np
 import pandas as pd
 import joblib
@@ -18,6 +19,9 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from loguru import logger
+
+sys.path.insert(0, str(Path(__file__).parent.parent / "bot"))
+from config import config
 
 warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
 
@@ -93,7 +97,7 @@ def run_backtest(df: pd.DataFrame, model, scaler, buy_threshold: float, sell_thr
     trades = []
     equity_curve = [initial_cash]
     
-    fee_rate = 0.001
+    fee_rate = config.exchange.maker_fee
     stop_loss = 0.015
     take_profit = 0.03
     position_size = 0.03

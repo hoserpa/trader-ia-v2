@@ -30,6 +30,8 @@ EDITABLE_FIELDS: dict[str, dict] = {
     "min_volatility_atr_pct": {"section": "risk", "type": float, "label": "ATR % mínimo para operar", "min": 0.0005, "max": 0.01, "step": 0.0005},
     "analysis_interval": {"section": "trading", "type": int, "label": "Intervalo de análisis (s)", "min": 60, "max": 7200, "step": 30},
     "invert_ml_signals": {"section": "trading", "type": bool, "label": "Invertir señales ML (si precision <50%)"},
+    "taker_fee": {"section": "exchange", "type": float, "label": "Comisión taker (Kraken)", "min": 0.0001, "max": 0.05, "step": 0.0001},
+    "maker_fee": {"section": "exchange", "type": float, "label": "Comisión maker (Kraken)", "min": 0.0001, "max": 0.05, "step": 0.0001},
 }
 
 
