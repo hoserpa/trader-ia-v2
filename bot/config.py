@@ -110,6 +110,7 @@ class GridConfig:
     pairs: list = field(default_factory=lambda: os.getenv("GRID_PAIRS", "BTC/EUR,ETH/EUR,SOL/EUR").split(","))
     leverage: int = field(default_factory=lambda: int(os.getenv("GRID_LEVERAGE", "1")))
     levels_per_pair: int = field(default_factory=lambda: int(os.getenv("GRID_LEVELS", "15")))
+    min_lot_value_eur: float = field(default_factory=lambda: float(os.getenv("GRID_MIN_LOT_VALUE_EUR", "5")))
     capital_pct: float = field(default_factory=lambda: float(os.getenv("GRID_CAPITAL_PCT", "0.90")))
     range_pct: float = field(default_factory=lambda: float(os.getenv("GRID_RANGE_PCT", "0.05")))
     rebalance_threshold: float = field(default_factory=lambda: float(os.getenv("GRID_REBALANCE_THRESHOLD", "0.08")))
@@ -181,6 +182,8 @@ class AppConfig:
             raise ValueError(f"KRAKEN_TAKER_FEE inválido: {self.exchange.taker_fee}. Debe estar entre 0 y 0.05.")
         if not (0 < self.exchange.maker_fee <= 0.05):
             raise ValueError(f"KRAKEN_MAKER_FEE inválido: {self.exchange.maker_fee}. Debe estar entre 0 y 0.05.")
+        if not (self.grid.min_lot_value_eur > 0):
+            raise ValueError(f"GRID_MIN_LOT_VALUE_EUR inválido: {self.grid.min_lot_value_eur}. Debe ser > 0.")
 
 
 config = AppConfig()

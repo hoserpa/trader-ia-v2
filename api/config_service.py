@@ -9,6 +9,7 @@ REDIS_KEY = "bot:config_overrides"
 
 EDITABLE_FIELDS: dict[str, dict] = {
     "capital_pct": {"section": "grid", "type": float, "label": "Capital % para grid", "min": 0.1, "max": 1.0, "step": 0.05},
+    "min_lot_value_eur": {"section": "grid", "type": float, "label": "Lote mínimo por nivel (€)", "min": 0.5, "max": 50.0, "step": 0.5},
     "leverage": {"section": "grid", "type": int, "label": "Leverage", "min": 1, "max": 5},
     "levels_per_pair": {"section": "grid", "type": int, "label": "Niveles por par", "min": 4, "max": 30},
     "range_pct": {"section": "grid", "type": float, "label": "Rango del grid %", "min": 0.01, "max": 0.20, "step": 0.01},

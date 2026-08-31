@@ -248,7 +248,9 @@ class GridStrategy:
             n_levels = grid_cfg.levels_per_pair
             spacing = (upper - lower) / max(n_levels - 1, 1)
 
-        level_value_eur = capital_per_pair / n_levels
+        level_value_eur = max(
+            capital_per_pair / n_levels, grid_cfg.min_lot_value_eur
+        )
 
         levels = []
         for i in range(n_levels):
@@ -572,6 +574,7 @@ class GridStrategy:
             "config": {
                 "leverage": config.grid.leverage,
                 "levels_per_pair": config.grid.levels_per_pair,
+                "min_lot_value_eur": config.grid.min_lot_value_eur,
                 "capital_pct": config.grid.capital_pct,
                 "range_pct": config.grid.range_pct,
                 "rebalance_threshold": config.grid.rebalance_threshold,

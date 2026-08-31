@@ -41,6 +41,7 @@ async def bot_config():
             "enabled": config.grid.enabled,
             "leverage": config.grid.leverage,
             "levels": config.grid.levels_per_pair,
+            "min_lot_value_eur": config.grid.min_lot_value_eur,
             "capital_pct": config.grid.capital_pct,
             "range_pct": config.grid.range_pct,
             "atr_adaptive": config.grid.atr_adaptive,
