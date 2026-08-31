@@ -32,48 +32,74 @@ class GridStrategy:
         self._global_state: dict = {}
 
     async def start(self):
-        """Inicia grid en todos los pares configurados."""
+        """Inicia grid en todos los pares configurados.
+
+        Restaura el estado (niveles e histórico de PnL) desde Redis siempre que
+        exista, independientemente de si el grid quedó 'enabled'. Reconciliar el
+        PnL total con el balance real acreditado al portfolio evita que, tras un
+        reinicio del contenedor, el dashboard muestre un PnL del grid incoherente
+        con el saldo acumulado.
+        """
         await self.load_state()
 
+        has_global = bool(self._global_state) and bool(self._global_state.get("started_at"))
         has_levels = any(self._state.get(p, {}).get("levels") for p in config.grid.pairs)
-        if self._running and self._state and has_levels:
-            logger.info("Grid: estado recuperado desde Redis, manteniendo niveles existentes")
-            await self._save_global_state()
-            return
 
-        self._running = True
-        self._global_state = {
-            "enabled": True,
-            "pairs": config.grid.pairs,
-            "total_pnl_eur": 0.0,
-            "total_grid_trades": 0,
-            "started_at": datetime.now(timezone.utc).isoformat(),
-        }
+        if not (has_global and has_levels):
+            logger.info("Grid: sin estado histórico, inicializando niveles desde cero")
+            self._global_state = {
+                "enabled": True,
+                "pairs": config.grid.pairs,
+                "total_pnl_eur": 0.0,
+                "total_grid_trades": 0,
+                "total_fees_eur": 0.0,
+                "started_at": datetime.now(timezone.utc).isoformat(),
+            }
 
-        port_state = self.portfolio.get()
-        total_balance = port_state.get(
-            "total_value_eur",
-            port_state.get("balance_eur", config.trading.demo_initial_balance),
-        )
-        total_grid_capital = total_balance * config.grid.capital_pct
-        capital_per_pair = total_grid_capital / max(len(config.grid.pairs), 1)
-
-        for pair in config.grid.pairs:
-            price = await self._get_price(pair)
-            if not price:
-                logger.warning(f"Grid: no hay precio para {pair}, saltando")
-                continue
-            await self._init_pair_grid(pair, price, capital_per_pair)
-            levels = len(self._state[pair]["levels"])
-            logger.info(
-                f"Grid iniciado {pair}: {levels} niveles, "
-                f"centro={price:.2f}e, capital={capital_per_pair:.2f}e"
+            port_state = self.portfolio.get()
+            total_balance = port_state.get(
+                "total_value_eur",
+                port_state.get("balance_eur", config.trading.demo_initial_balance),
             )
+            total_grid_capital = total_balance * config.grid.capital_pct
+            capital_per_pair = total_grid_capital / max(len(config.grid.pairs), 1)
 
+            for pair in config.grid.pairs:
+                if self._state.get(pair, {}).get("levels"):
+                    continue
+                price = await self._get_price(pair)
+                if not price:
+                    logger.warning(f"Grid: no hay precio para {pair}, saltando")
+                    continue
+                await self._init_pair_grid(pair, price, capital_per_pair)
+                levels = len(self._state[pair]["levels"])
+                logger.info(
+                    f"Grid iniciado {pair}: {levels} niveles, "
+                    f"centro={price:.2f}e, capital={capital_per_pair:.2f}e"
+                )
+        else:
+            logger.info("Grid: estado recuperado desde Redis, manteniendo niveles e histórico")
+
+        self._reconcile_with_portfolio()
+        self._running = True
         await self._save_global_state()
-        logger.info(
-            f"Grid activo en {len(self._state)} pares, capital total={total_grid_capital:.2f}e"
-        )
+        logger.info(f"Grid activo en {len(self._state)} pares")
+
+    def _reconcile_with_portfolio(self):
+        """Sincroniza el PnL total reportado por el grid con el balance real del
+        portfolio (fuente de verdad de lo efectivamente acreditado).
+
+        El balance acumula el PnL neto de cada fill de forma persistente, mientras
+        que el acumulado del grid podía perderse en reinicios. Al alinear el total
+        del grid con (balance - capital inicial), el dashboard deja de mostrar dos
+        cifras de PnL contradictorias. Los fills posteriores incrementan este total
+        de forma coherente con el balance.
+        """
+        port = self.portfolio.get()
+        initial = port.get("initial_balance_eur", port.get("balance_eur", 0))
+        real_pnl = round(port.get("balance_eur", 0) - initial, 4)
+        self._global_state["total_pnl_eur"] = real_pnl
+        self._global_state["real_pnl_eur"] = real_pnl
 
     async def stop(self):
         """Detiene todos los grids."""
@@ -348,6 +374,8 @@ class GridStrategy:
         )
         await self._save_global_state()
 
+        await self._persist_grid_fill(pair, level, fill_price, pnl, fee_eur)
+
         if self.telegram:
             await self.telegram.notify_grid_fill(
                 pair, level["side"], fill_price, amount, fee_eur,
@@ -360,6 +388,57 @@ class GridStrategy:
                     level.get("opened_at", ""), level.get("filled_at", "")
                 )
                 await self.telegram.notify_grid_cycle(pair, pnl, fees_total, duration)
+
+    async def _persist_grid_fill(self, pair: str, level: dict, fill_price: float, pnl: float, fee_eur: float):
+        """Registra cada fill en la BD como trade y acredita el PnL neto al portfolio.
+
+        Mantiene el balance_total del portfolio sincronizado con el PnL neto del grid
+        (spread - comisiones). Publica portfolio_update por WebSocket para el dashboard.
+        """
+        try:
+            intraday = self.portfolio.get()
+            await self.portfolio.update_balance(pnl)
+            port = self.portfolio.get()
+
+            initial = port.get("initial_balance_eur", port.get("balance_eur", 0))
+            new_total = round(port["balance_eur"], 4)
+            port["total_value_eur"] = new_total
+            port["total_pnl_eur"] = round(new_total - initial, 4)
+            port["total_pnl_pct"] = (
+                round((new_total - initial) / initial * 100, 4) if initial > 0 else 0
+            )
+            await self.portfolio._save(port)
+
+            from database.crud import create_trade
+            from database.init_db import SessionLocal
+            with SessionLocal() as db:
+                create_trade(db, {
+                    "pair": pair,
+                    "side": level["side"].upper(),
+                    "amount_crypto": level["amount"],
+                    "amount_eur": round(level["amount"] * fill_price, 4),
+                    "price": round(fill_price, 8),
+                    "fee_eur": round(fee_eur, 4),
+                    "mode": "demo",
+                })
+
+            await self.redis.publish(
+                "bot:live_updates",
+                json.dumps({
+                    "type": "portfolio_update",
+                    "data": {
+                        "balance_eur": port["balance_eur"],
+                        "initial_balance_eur": port.get("initial_balance_eur", initial),
+                        "positions": port.get("positions", {}),
+                        "total_value_eur": port["total_value_eur"],
+                        "total_pnl_eur": port["total_pnl_eur"],
+                        "total_pnl_pct": port["total_pnl_pct"],
+                        "grid_pnl": round(self._global_state.get("total_pnl_eur", 0), 4),
+                    },
+                }),
+            )
+        except Exception as e:
+            logger.warning(f"Grid {pair}: no se persistió fill: {e}")
 
     def _cleanup_filled_levels(self, pair: str):
         """Elimina filled levels antiguos para evitar crecimiento indefinido."""
