@@ -190,6 +190,26 @@ createApp({
 
     const formatPrice = (v) => v != null ? Number(v).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
     const formatDate = (ts) => new Date(ts).toLocaleString('es-ES');
+    const isBuy = (side) => side === 'buy' || side === 'buy_to_close';
+    const tradeColor = (t) => {
+      if (isBuy(t.side)) return 'buy';
+      if (t.pnl_eur != null) return t.pnl_eur > 0 ? 'win' : 'loss';
+      return 'sell';
+    };
+    const badgeClass = (t) => {
+      const c = tradeColor(t);
+      return c === 'win' ? 'badge-win' : c === 'loss' ? 'badge-loss' : c === 'buy' ? 'badge-buy' : 'badge-sell';
+    };
+    const pnlClass = (t) => {
+      if (t.pnl_eur == null) return '';
+      return t.pnl_eur > 0 ? 'positive' : 'negative';
+    };
+    const formatPnl = (v) => {
+      if (v == null) return '—';
+      const n = Number(v);
+      const s = n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      return (n > 0 ? '+' : '') + s + '€';
+    };
     const modeClass = computed(() => botStatus.value.mode === 'real' ? 'badge-real' : 'badge-demo');
     const statusClass = computed(() => ({ 
       'dot-green': botStatus.value.status === 'running', 
@@ -230,6 +250,7 @@ createApp({
       portfolio, botStatus, botConfig, prices, trades, systemLogs,
       latestSignals, stats, gridState, historyDays, logContainer, openPositions,
       formatPrice, formatDate, modeClass, statusClass, statusTextClass, signalClass,
+      tradeColor, badgeClass, pnlClass, formatPnl,
       loadPortfolioHistory, resetPortfolio,
       configModalOpen, configForm, configGroups, configSaving, configSaved,
       openConfig, closeConfig, saveConfig, restoreField,

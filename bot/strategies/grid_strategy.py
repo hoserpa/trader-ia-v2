@@ -419,6 +419,7 @@ class GridStrategy:
                     "amount_eur": round(level["amount"] * fill_price, 4),
                     "price": round(fill_price, 8),
                     "fee_eur": round(fee_eur, 4),
+                    "pnl_eur": round(pnl, 4) if isinstance(level.get("id"), str) else None,
                     "mode": "demo",
                 })
 

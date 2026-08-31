@@ -70,6 +70,7 @@ class Trade(Base):
     amount_eur = Column(Float, nullable=False)
     price = Column(Float, nullable=False)
     fee_eur = Column(Float, nullable=False)
+    pnl_eur = Column(Float, nullable=True)
     timestamp = Column(DateTime, nullable=False, default=datetime.utcnow)
     mode = Column(String(4), nullable=False)
     exchange_order_id = Column(String(100), nullable=True)

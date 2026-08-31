@@ -42,6 +42,11 @@ def init_db() -> sessionmaker:
             logger.info("Migración: columna realized_pnl_eur añadida a positions")
         except Exception:
             pass
+        try:
+            conn.execute(text("ALTER TABLE trades ADD COLUMN pnl_eur FLOAT"))
+            logger.info("Migración: columna pnl_eur añadida a trades")
+        except Exception:
+            pass
         conn.commit()
 
     logger.info(f"Base de datos inicializada en {config.database.sqlite_path}")
