@@ -292,8 +292,11 @@ class GridStrategy:
     async def _handle_fill(self, pair: str, level: dict, fill_price: float):
         """Marca orden como llena, coloca counter-order y acredita PnL neto de comisiones.
 
-        Cada fill notifica su detalle y, si completa un ciclo (pierna contraria),
-        notifica el PnL neto y las comisiones del ciclo.
+        La pierna de apertura (id entero) solo debita su comision (-fee), ya que no hay
+        PnL realizado todavia. La pierna de cierre (id string) acredita el PnL realizado
+        del ciclo usando el precio real de apertura (entry_price), evitando el doble
+        conteo de la mejora de precio (slippage favorable). Las comisiones no realizadas
+        ni los beneficios por slippage se inflan el balance.
         """
         level["status"] = "filled"
         level["filled_at"] = datetime.now(timezone.utc).isoformat()
@@ -311,7 +314,12 @@ class GridStrategy:
         if level["side"] == "buy":
             sell_price = level["price"] + spacing
             counter_price = sell_price
-            pnl = (entry_price - fill_price) * amount - fee_eur
+            is_close = isinstance(level.get("id"), str)
+            pnl = (
+                (entry_price - fill_price) * amount - fee_eur
+                if is_close
+                else -fee_eur
+            )
             new_level = {
                 "id": f"{level['id']}_sell_{len(self._state[pair]['levels'])}",
                 "price": round(sell_price, 8),
@@ -333,7 +341,12 @@ class GridStrategy:
         else:
             buy_price = level["price"] - spacing
             counter_price = buy_price
-            pnl = (fill_price - entry_price) * amount - fee_eur
+            is_close = isinstance(level.get("id"), str)
+            pnl = (
+                (fill_price - entry_price) * amount - fee_eur
+                if is_close
+                else -fee_eur
+            )
             new_level = {
                 "id": f"{level['id']}_buy_{len(self._state[pair]['levels'])}",
                 "price": round(buy_price, 8),
@@ -376,6 +389,7 @@ class GridStrategy:
         )
         await self._save_global_state()
 
+        await self._save_pair_state(pair)
         await self._persist_grid_fill(pair, level, fill_price, pnl, fee_eur)
 
         if self.telegram:
