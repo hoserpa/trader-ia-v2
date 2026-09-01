@@ -125,60 +125,91 @@ class TelegramNotifier:
         text = f"⚠️ *AVISO* {message}"
         await self._send(text, priority="warning", warn_key=warn_key)
 
-    async def notify_grid_fill(
-        self,
-        pair: str,
-        side: str,
-        price: float,
-        amount: float,
-        fee_eur: float,
-        counter_price: float = None,
+    async def notify_grid_cycle(
+        self, pair: str, side: str, entry_price: float, exit_price: float,
+        pnl_net: float, fees_total: float, duration: str,
     ) -> None:
-        """Notifica cada pierna del grid (simulado) que se llena."""
+        """Notifica una operacion completa del grid (cierre de ciclo) con formato historial."""
+        side_label = "LARGO" if side == "buy" else "CORTO"
+        if pnl_net > 0:
+            emoji = "🟢"
+            label = "GANANCIA"
+        elif pnl_net < 0:
+            emoji = "🔴"
+            label = "PÉRDIDA"
+        else:
+            emoji = "🟡"
+            label = "EMPATE"
         pair_s = _pair_short(pair)
-        is_sell = side == "sell"
-        emoji = "🔴" if is_sell else "🟢"
-        label = "VENTA" if is_sell else "COMPRA"
-        text = f"{emoji} *GRID (simulado)* {label} {pair_s} {amount:.8f} @ {_fmt_price(price)}€ · Comisión {fee_eur:.2f}€"
-        if counter_price:
-            text += f" · → {'BUY' if is_sell else 'SELL'} {_fmt_price(counter_price)}€"
-        await self._send(text)
-
-    async def notify_grid_cycle(self, pair: str, pnl_net: float, fees_total: float, duration: str) -> None:
-        """Notifica un ciclo completo del grid con PnL neto de comisiones."""
-        emoji = "💰" if pnl_net >= 0 else "🔻"
-        label = "GANANCIA CICLO GRID" if pnl_net >= 0 else "PÉRDIDA CICLO GRID"
+        entry_s = f"{entry_price:.2f}€" if entry_price is not None else "—"
+        exit_s = f"{exit_price:.2f}€" if exit_price is not None else "—"
         text = (
-            f"{emoji} *{label}* {_pair_short(pair)} · PnL neto {pnl_net:+.2f}€ "
-            f"· Comisiones {fees_total:.2f}€ · {duration}"
+            f"{emoji} *{label} CICLO GRID* {pair_s} · {side_label}\n"
+            f"Entrada {entry_s} → Salida {exit_s}\n"
+            f"PnL {pnl_net:+.2f}€ · Comisiones {fees_total:.2f}€ · {duration}"
         )
         await self._send(text)
 
-    async def send_daily_summary(self, portfolio: dict, stats: dict, grid: dict | None = None) -> None:
+    def _op_line(self, op: dict) -> str:
+        """Formatea una operacion como una linea del historial (fila de la tabla)."""
+        pair = _pair_short(op.get("pair", "-"))
+        status = op.get("status", "open")
+        side_label = "ABIERTA" if status == "open" else ("LARGO" if op.get("side") == "buy" else "CORTO")
+        ts = op.get("entry_timestamp") or ""
+        hora = ts[11:16] if len(ts) >= 16 else ""
+        entry = op.get("entry_price")
+        exit_p = op.get("exit_price")
+        pnl = op.get("pnl_eur")
+        fees = op.get("total_fees", 0)
+
+        if status == "open":
+            emoji = "⚪"
+        elif pnl is None:
+            emoji = "⚪"
+        elif pnl > 0:
+            emoji = "🟢"
+        elif pnl < 0:
+            emoji = "🔴"
+        else:
+            emoji = "🟡"
+
+        entry_s = f"{entry:.2f}€" if entry is not None else "—"
+        exit_s = f"{exit_p:.2f}€" if exit_p is not None else "—"
+        pnl_s = f"{pnl:+.2f}€" if pnl is not None else "—"
+        return (
+            f"{emoji} {hora} · {pair} · {side_label} · "
+            f"Entrada {entry_s} · Salida {exit_s} · PnL {pnl_s} · Com. {fees:.2f}€"
+        )
+
+    async def send_daily_summary(self, portfolio: dict, stats: dict, grid: dict | None = None, operations: list | None = None) -> None:
         mode = "DEMO" if config.trading.is_demo() else "REAL"
         pnl = portfolio.get("total_pnl_eur", 0)
         pnl_pct = portfolio.get("total_pnl_pct", 0)
         val = portfolio.get("total_value_eur", 0)
-        open_pos = portfolio.get("open_positions", 0)
+        open_pos = stats.get("open_operations", portfolio.get("open_positions", 0))
         pnl_emoji = "📈" if pnl >= 0 else "📉"
 
         win_rate = stats.get("win_rate", 0)
         if win_rate and win_rate <= 1:
             win_rate *= 100
-        trades = stats.get("trades_today", 0)
+        today = stats.get("today_operations", stats.get("trades_today", 0))
         wins = stats.get("wins_today", 0)
+        losses = stats.get("losses_today", 0)
+        today_closed = stats.get("today_closed", 0)
         errors = stats.get("errors_today", 0)
 
         text = (
             f"📊 *Resumen* `{mode}` · {val:.2f}€ · {pnl_emoji} PnL {pnl:+.2f}€ ({pnl_pct:+.2f}%)\n"
-            f"Hoy {trades} trades ({wins}✅) · WR {win_rate:.0f}% · {open_pos} open · Errores {errors}"
+            f"Hoy {today} ops ({wins}✅ / {losses}❌ de {today_closed} cerradas) · "
+            f"WR {win_rate:.0f}% · {open_pos} abiertas · Errores {errors}"
         )
         if grid:
             grid_pnl = grid.get("total_pnl_eur", 0)
-            grid_trades = grid.get("total_grid_trades", 0)
             grid_fees = grid.get("total_fees_eur", 0)
             grid_emoji = "📈" if grid_pnl >= 0 else "📉"
-            text += (
-                f"\nGrid {grid_emoji} {grid_pnl:+.2f}€ ({grid_trades} ciclos) · Comisiones {grid_fees:.2f}€"
-            )
+            text += f"\nGrid {grid_emoji} {grid_pnl:+.2f}€ · Comisiones {grid_fees:.2f}€"
+        if operations:
+            text += "\n\n📋 *Operaciones recientes*"
+            for op in operations[:8]:
+                text += "\n" + self._op_line(op)
         await self._send(text)

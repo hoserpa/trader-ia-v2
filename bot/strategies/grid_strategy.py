@@ -463,17 +463,17 @@ class GridStrategy:
         await self._persist_grid_fill(pair, level, fill_price, pnl, fee_eur)
 
         if self.telegram:
-            await self.telegram.notify_grid_fill(
-                pair, level["side"], fill_price, amount, fee_eur,
-                counter_price=counter_price,
-            )
             is_cycle_close = isinstance(level.get("id"), str)
             if is_cycle_close:
                 fees_total = fee_eur + level.get("fee_eur_opening", 0)
                 duration = _format_duration_between(
                     level.get("opened_at", ""), level.get("filled_at", "")
                 )
-                await self.telegram.notify_grid_cycle(pair, pnl, fees_total, duration)
+                op_side = "buy" if level["side"] == "sell" else "sell"
+                await self.telegram.notify_grid_cycle(
+                    pair, op_side, level.get("entry_price"), fill_price,
+                    pnl, fees_total, duration,
+                )
 
     async def _persist_grid_fill(self, pair: str, level: dict, fill_price: float, pnl: float, fee_eur: float):
         """Registra cada fill en la BD como trade y acredita el PnL neto al portfolio.

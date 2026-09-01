@@ -31,7 +31,7 @@ from trading.real_trader import RealTrader
 from strategies.grid_strategy import GridStrategy
 from config_service import apply_overrides
 from notifications.telegram import TelegramNotifier
-from database.crud import save_portfolio_snapshot, get_stats_summary, get_open_positions
+from database.crud import save_portfolio_snapshot, get_stats_summary, get_open_positions, get_recent_operations
 from database.init_db import SessionLocal
 
 
@@ -264,15 +264,17 @@ class TradingEngine:
         with SessionLocal() as db:
             stats = get_stats_summary(db)
             open_positions = get_open_positions(db)
-        portfolio_state["open_positions"] = len(open_positions)
+            review_ops = get_recent_operations(db, limit=8)
+        portfolio_state["open_positions"] = stats.get("open_operations", len(open_positions))
 
         grid_summary = {
             "total_pnl_eur": grid_state.get("total_pnl_eur", 0),
-            "total_grid_trades": grid_state.get("total_grid_trades", 0),
             "total_fees_eur": grid_state.get("total_fees_eur", 0),
         }
 
-        await self.telegram.send_daily_summary(portfolio_state, stats, grid=grid_summary)
+        await self.telegram.send_daily_summary(
+            portfolio_state, stats, grid=grid_summary, operations=review_ops
+        )
         await self.redis.set(today_key, today_str)
 
     async def _check_drawdown(self) -> None:
