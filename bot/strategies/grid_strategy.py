@@ -40,10 +40,13 @@ class GridStrategy:
             self.broker.set_margin_support(self._margin_support)
 
     def _pair_short_ok(self, pair: str) -> bool:
-        """Un par puede abrir shorts solo si la API real permite margen/corto en el."""
+        """Un par puede abrir shorts solo si la API real permite margen/corto en el.
+
+        En demo se permite simular shorts donde la API real los soporte (short_ok);
+        en real se exige ademas allow_short + margin_enabled."""
         if self.broker is not None:
             return self.broker.has_short_support(pair)
-        if not config.exchange.allow_short or not config.exchange.margin_enabled:
+        if not config.trading.is_demo() and not (config.exchange.allow_short and config.exchange.margin_enabled):
             return False
         info = self._margin_support.get(pair, {})
         if info.get("in_markets") is False:
@@ -52,10 +55,11 @@ class GridStrategy:
 
     def _short_disabled_reason(self, pair: str) -> str:
         """Devuelve por que no se abren shorts en este par (para logs fieles)."""
-        if not config.exchange.allow_short:
-            return "EXCHANGE_ALLOW_SHORT=false en config"
-        if not config.exchange.margin_enabled:
-            return "EXCHANGE_MARGIN_ENABLED=false en config"
+        if not config.trading.is_demo():
+            if not config.exchange.allow_short:
+                return "EXCHANGE_ALLOW_SHORT=false en config"
+            if not config.exchange.margin_enabled:
+                return "EXCHANGE_MARGIN_ENABLED=false en config"
         info = self._margin_support.get(pair, {})
         if info.get("short_ok"):
             return "mercado admite short pero broker lo descarta"

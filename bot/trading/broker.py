@@ -52,9 +52,18 @@ class ExecutionBroker:
 
     # -- Cursores -----------------------------------------------------------
     def has_short_support(self, pair: str) -> bool:
-        """Devuelve si el par permite apertura de short (corto) con MARGEN real."""
-        if not config.exchange.allow_short or not config.exchange.margin_enabled:
-            return False
+        """Devuelve si el par puede abrir shorts (con margen real).
+
+        En modo DEMO se simula localmente (sin riesgo real), por lo que se permite
+        simular shorts siempre que la API real del par lo soporte (short_ok), sin
+        depender de allow_short/margin_enabled (que rigen solo la ejecucion REAL).
+
+        En modo REAL se exige ademas allow_short + margin_enabled, para no abrir
+        cortos que la API real no pudiera ejecutar (proteccion: no vender sin poseer).
+        """
+        if not config.trading.is_demo():
+            if not config.exchange.allow_short or not config.exchange.margin_enabled:
+                return False
         info = self.margin_supported.get(pair, {})
         if info.get("in_markets") is False:
             return False
