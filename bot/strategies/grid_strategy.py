@@ -23,13 +23,68 @@ MAX_FILLED_HISTORY = 50
 class GridStrategy:
     """Grid trading con soporte ATR-adaptive."""
 
-    def __init__(self, redis_client, portfolio: Portfolio, telegram=None):
+    def __init__(self, redis_client, portfolio: Portfolio, broker=None, telegram=None):
         self.redis = redis_client
         self.portfolio = portfolio
+        self.broker = broker
         self.telegram = telegram
         self._running = False
         self._state: dict[str, dict] = {}
         self._global_state: dict = {}
+        self._margin_support: dict = {}
+
+    def set_margin_support(self, support: dict) -> None:
+        self._margin_support = support or {}
+        if self.broker:
+            self.broker.set_margin_support(self._margin_support)
+
+    def _pair_short_ok(self, pair: str) -> bool:
+        """Un par puede abrir shorts solo si la API real permite margen/corto en el."""
+        if self.broker is not None:
+            return self.broker.has_short_support(pair)
+        if not config.exchange.allow_short or not config.exchange.margin_enabled:
+            return False
+        info = self._margin_support.get(pair, {})
+        if info.get("in_markets") is False:
+            return False
+        return bool(info.get("short_ok"))
+
+    def _short_disabled_reason(self, pair: str) -> str:
+        """Devuelve por que no se abren shorts en este par (para logs fieles)."""
+        if not config.exchange.allow_short:
+            return "EXCHANGE_ALLOW_SHORT=false en config"
+        if not config.exchange.margin_enabled:
+            return "EXCHANGE_MARGIN_ENABLED=false en config"
+        info = self._margin_support.get(pair, {})
+        if info.get("short_ok"):
+            return "mercado admite short pero broker lo descarta"
+        return "la API real no permite margen/corto en este par"
+
+    @property
+    def margin_supported(self) -> dict:
+        return self._margin_support
+
+    async def _retrofit_short_unavailable(self) -> None:
+        """Elimina de pares ya inicializados (restaurados desde Redis) los niveles
+        SELL que abririan un short, cuando el par real no permite margen/corto.
+
+        Mantiene la paridad demo/real: si un par no soporta shorts en la API real,
+        el grid (en cualquier modo) no mantiene niveles que abririan un corto.
+        """
+        changed = False
+        for pair, state in self._state.items():
+            if not self._pair_short_ok(pair):
+                keep = [
+                    l for l in state.get("levels", [])
+                    if l.get("status") == "filled" or l.get("side") != "sell"
+                ]
+                if len(keep) != len(state.get("levels", [])):
+                    state["levels"] = keep
+                    changed = True
+        if changed:
+            logger.info("Grid: removidos niveles SELL en pares long-only")
+            for pair in self._state:
+                await self._save_pair_state(pair)
 
     async def start(self):
         """Inicia grid en todos los pares configurados.
@@ -41,6 +96,8 @@ class GridStrategy:
         con el saldo acumulado.
         """
         await self.load_state()
+
+        await self._retrofit_short_unavailable()
 
         has_global = bool(self._global_state) and bool(self._global_state.get("started_at"))
         has_levels = any(self._state.get(p, {}).get("levels") for p in config.grid.pairs)
@@ -252,10 +309,17 @@ class GridStrategy:
             capital_per_pair / n_levels, grid_cfg.min_lot_value_eur
         )
 
+        short_ok = self._pair_short_ok(pair)
         levels = []
         for i in range(n_levels):
             level_price = lower + (i * spacing)
             side = "buy" if level_price < current_price else "sell"
+            if side == "sell" and not short_ok:
+                logger.info(
+                    f"Grid {pair}: nivel SELL {level_price:.2f} omitido (long-only, "
+                    f"{self._short_disabled_reason(pair)})"
+                )
+                continue
             amount = (level_value_eur * grid_cfg.leverage) / level_price
             levels.append(
                 {
@@ -436,7 +500,7 @@ class GridStrategy:
                     "price": round(fill_price, 8),
                     "fee_eur": round(fee_eur, 4),
                     "pnl_eur": round(pnl, 4) if isinstance(level.get("id"), str) else None,
-                    "mode": "demo",
+                    "mode": config.trading.mode,
                 })
 
             await self.redis.publish(
@@ -570,12 +634,16 @@ class GridStrategy:
                 "pnl_pct": round(state["pnl_pct"], 2),
                 "fees_eur": round(state.get("fees_eur", 0), 4),
                 "total_grid_trades": state["total_grid_trades"],
+                "short_supported": self._pair_short_ok(pair),
             }
 
         return {
             "enabled": config.grid.enabled,
             "running": self._running,
             "simulated": True,
+            "execution_mode": getattr(self.broker, "mode", "demo") if self.broker else "demo",
+            "margin_enabled": config.exchange.margin_enabled,
+            "allow_short": config.exchange.allow_short,
             "pairs": pairs,
             "total_pnl_eur": round(
                 self._global_state.get("total_pnl_eur", 0), 4
@@ -597,5 +665,9 @@ class GridStrategy:
                 "atr_adaptive": config.grid.atr_adaptive,
                 "taker_fee": config.exchange.taker_fee,
                 "maker_fee": config.exchange.maker_fee,
+                "margin_enabled": config.exchange.margin_enabled,
+                "margin_mode": config.exchange.margin_mode,
+                "margin_leverage": config.exchange.margin_leverage,
+                "allow_short": config.exchange.allow_short,
             },
         }

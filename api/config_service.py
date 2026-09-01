@@ -22,6 +22,10 @@ EDITABLE_FIELDS: dict[str, dict] = {
     "max_levels": {"section": "grid", "type": int, "label": "Max niveles", "min": 4, "max": 30},
     "taker_fee": {"section": "exchange", "type": float, "label": "Comisión taker (Kraken)", "min": 0.0001, "max": 0.05, "step": 0.0001},
     "maker_fee": {"section": "exchange", "type": float, "label": "Comisión maker (Kraken)", "min": 0.0001, "max": 0.05, "step": 0.0001},
+    "margin_enabled": {"section": "exchange", "type": bool, "label": "Margen habilitado (Kraken)"},
+    "margin_mode": {"section": "exchange", "type": str, "label": "Modo de margen (isolated/cross)"},
+    "margin_leverage": {"section": "exchange", "type": int, "label": "Leverage de margen", "min": 1, "max": 10},
+    "allow_short": {"section": "exchange", "type": bool, "label": "Permitir short (requiere margen)"},
 }
 
 

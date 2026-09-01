@@ -52,6 +52,14 @@ class ExchangeConfig:
     api_secret: str = field(default_factory=lambda: os.getenv("KRAKEN_API_SECRET", ""))
     taker_fee: float = field(default_factory=lambda: float(os.getenv("KRAKEN_TAKER_FEE", "0.0026")))  # Kraken taker fee ~0.26%
     maker_fee: float = field(default_factory=lambda: float(os.getenv("KRAKEN_MAKER_FEE", "0.0016")))  # Kraken maker fee ~0.16%
+    margin_enabled: bool = field(default_factory=lambda: os.getenv("EXCHANGE_MARGIN_ENABLED", "false").lower() == "true")
+    margin_mode: str = field(default_factory=lambda: os.getenv("EXCHANGE_MARGIN_MODE", "isolated"))
+    margin_leverage: int = field(default_factory=lambda: int(os.getenv("EXCHANGE_MARGIN_LEVERAGE", "2")))
+    allow_short: bool = field(default_factory=lambda: os.getenv("EXCHANGE_ALLOW_SHORT", "false").lower() == "true")
+
+    def short_ok_regardless_of_margin(self) -> bool:
+        """La API real (sin margin activo) no permite shorts spot sin poseer el activo."""
+        return self.allow_short and self.margin_enabled
 
 
 @dataclass
@@ -184,6 +192,12 @@ class AppConfig:
             raise ValueError(f"KRAKEN_MAKER_FEE inválido: {self.exchange.maker_fee}. Debe estar entre 0 y 0.05.")
         if not (self.grid.min_lot_value_eur > 0):
             raise ValueError(f"GRID_MIN_LOT_VALUE_EUR inválido: {self.grid.min_lot_value_eur}. Debe ser > 0.")
+        if not (self.exchange.margin_leverage >= 1):
+            raise ValueError(f"EXCHANGE_MARGIN_LEVERAGE inválido: {self.exchange.margin_leverage}. Debe ser >= 1.")
+        if self.exchange.margin_mode not in ("isolated", "cross"):
+            raise ValueError(f"EXCHANGE_MARGIN_MODE inválido: {self.exchange.margin_mode}. Debe ser 'isolated' o 'cross'.")
+        if self.exchange.allow_short and not self.exchange.margin_enabled:
+            raise ValueError("EXCHANGE_ALLOW_SHORT=true requiere EXCHANGE_MARGIN_ENABLED=true: sin margen la API real no permite shorts.")
 
 
 config = AppConfig()

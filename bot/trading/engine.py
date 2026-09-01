@@ -23,6 +23,9 @@ from config import config
 from data.collector import DataCollector
 from indicators.technical import calculate_indicators, get_atr
 from trading.portfolio import Portfolio
+from trading.risk_manager import RiskManager
+from trading.broker import build_broker
+from trading import market_data
 from trading.demo_trader import DemoTrader
 from trading.real_trader import RealTrader
 from strategies.grid_strategy import GridStrategy
@@ -61,8 +64,10 @@ class TradingEngine:
         self.collector = DataCollector(redis_client)
         self.portfolio = Portfolio(redis_client)
         self.telegram = TelegramNotifier()
+        self.risk = RiskManager()
+        self.broker = build_broker(self.portfolio, self.risk)
         self.grid_strategy = GridStrategy(
-            redis_client, self.portfolio, telegram=self.telegram
+            redis_client, self.portfolio, broker=self.broker, telegram=self.telegram
         )
         self._running = False
         self._status = "stopped"
@@ -118,6 +123,8 @@ class TradingEngine:
         else:
             logger.warning("Modo REAL activado.")
 
+        await self._validate_margin_support()
+
         await self.telegram.notify_bot_started()
 
         self._status = "running"
@@ -150,6 +157,52 @@ class TradingEngine:
         await self._publish_status()
         await self._release_instance_lock()
         logger.info("Motor de trading detenido.")
+
+    async def _validate_margin_support(self) -> None:
+        """Consulta los markets reales de Kraken y determina el soporte de margen/short
+        por par. Tanto en demo como en real se usa el dato real del mercado, para que el
+        modo demo decida igual que el modo real (no abre shorts que la API no podria)."""
+        pairs = list(dict.fromkeys(config.grid.pairs + config.trading.pairs))
+        margin = {}
+        status = "no consultado"
+        try:
+            margin = await self._fetch_real_margin_support(pairs)
+            ok = sum(1 for v in margin.values() if v.get("in_markets"))
+            yy = sum(1 for v in margin.values() if v.get("short_ok"))
+            status = f"{ok}/{len(pairs)} pares, {yy} permiten short con margen"
+        except Exception as e:
+            logger.warning(f"No se pudo validar soporte de margen real: {e}")
+            margin = {p: {
+                "symbol": p, "in_markets": False, "long_leverage": None,
+                "short_leverage": None, "margin_ok": False, "short_ok": False,
+            } for p in pairs}
+
+        self.broker.set_margin_support(margin)
+        self.grid_strategy.set_margin_support(margin)
+        self.margin_supported = margin
+
+        for pair in pairs:
+            info = margin.get(pair, {})
+            logger.info(
+                f"Margen {pair}: long_lev={info.get('long_leverage')}, "
+                f"short_lev={info.get('short_leverage')}, "
+                f"short_ok={info.get('short_ok')}"
+            )
+        logger.info(f"Validacion de margen real completada ({status})")
+
+    async def _fetch_real_margin_support(self, pairs: list) -> dict:
+        """Crear cliente kraken de solo lectura y consultar markets. No autentica."""
+        import ccxt.async_support as ccxt
+        exchange = getattr(ccxt, config.exchange.name.lower())({
+            "enableRateLimit": True,
+        })
+        try:
+            return await market_data.fetch_margin_support(exchange, pairs)
+        finally:
+            try:
+                await exchange.close()
+            except Exception:
+                pass
 
     async def _grid_loop(self) -> None:
         """Ciclo principal: verifica fills del grid."""
