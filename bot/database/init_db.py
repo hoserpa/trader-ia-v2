@@ -47,6 +47,12 @@ def init_db() -> sessionmaker:
             logger.info("Migración: columna pnl_eur añadida a trades")
         except Exception:
             pass
+        try:
+            conn.execute(text("ALTER TABLE trades ADD COLUMN cycle_id VARCHAR(36)"))
+            logger.info("Migración: columna cycle_id añadida a trades")
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_trades_cycle ON trades(cycle_id)"))
+        except Exception:
+            pass
         conn.commit()
 
     logger.info(f"Base de datos inicializada en {config.database.sqlite_path}")

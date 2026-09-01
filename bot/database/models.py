@@ -74,8 +74,12 @@ class Trade(Base):
     timestamp = Column(DateTime, nullable=False, default=datetime.utcnow)
     mode = Column(String(4), nullable=False)
     exchange_order_id = Column(String(100), nullable=True)
+    cycle_id = Column(String(36), nullable=True)
     position = relationship("Position", back_populates="trades")
-    __table_args__ = (Index("idx_trades_timestamp", "timestamp"),)
+    __table_args__ = (
+        Index("idx_trades_timestamp", "timestamp"),
+        Index("idx_trades_cycle", "cycle_id"),
+    )
 
 
 class ModelDecision(Base):

@@ -151,6 +151,77 @@ def get_trades(db: Session, limit: int = 50, offset: int = 0) -> list[Trade]:
     )
 
 
+def get_operations(db: Session, limit: int = 50, offset: int = 0) -> list[dict]:
+    """Devuelve operaciones del grid agrupadas por ciclo (entrada + cierre).
+
+    Cada operacion agrupa la pierna de apertura y la de cierre que comparten
+    cycle_id. Para trades sin cycle_id (historicos), se agrupan por position_id
+    o se devuelven como operacion unica con status abierta.
+
+    Returns:
+        list de dicts: {
+            id, pair, entry_timestamp, entry_price, amount_crypto, entry_fee,
+            exit_timestamp, exit_price, exit_fee, total_fees, pnl_eur, status, mode
+        }
+    """
+    trades = (
+        db.query(Trade)
+        .order_by(Trade.timestamp.asc())
+        .all()
+    )
+    groups: dict = {}
+    order: list = []
+    for t in trades:
+        key = t.cycle_id or (f"pos_{t.position_id}" if t.position_id else f"id_{t.id}")
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(t)
+
+    ops = []
+    for key in reversed(order):
+        items = groups[key]
+        if not items:
+            continue
+        items.sort(key=lambda x: x.timestamp)
+        opening = items[0]
+        closing = next((x for x in items[1:] if x.pnl_eur is not None), None)
+        side = opening.side
+        total_fees = round(sum(x.fee_eur for x in items), 4)
+        if closing:
+            status = "closed"
+            pnl_eur = round(closing.pnl_eur, 4)
+            exit_price = closing.price
+            exit_fee = closing.fee_eur
+            exit_ts = closing.timestamp
+        else:
+            status = "open"
+            pnl_eur = None
+            exit_price = None
+            exit_fee = 0.0
+            exit_ts = None
+        ops.append({
+            "id": key,
+            "pair": opening.pair,
+            "side": side,
+            "status": status,
+            "mode": opening.mode,
+            "amount_crypto": round(opening.amount_crypto, 8),
+            "entry_price": round(opening.price, 8),
+            "entry_fee": round(opening.fee_eur, 4),
+            "exit_price": round(exit_price, 8) if exit_price is not None else None,
+            "exit_fee": round(exit_fee, 4),
+            "total_fees": total_fees,
+            "pnl_eur": pnl_eur,
+            "amount_eur_entry": round(opening.amount_eur, 4),
+            "entry_timestamp": opening.timestamp.isoformat() + "Z",
+            "exit_timestamp": exit_ts.isoformat() + "Z" if exit_ts else None,
+        })
+        if len(ops) >= limit:
+            break
+    return ops[offset:]
+
+
 def count_trades_today(db: Session) -> int:
     today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     return db.query(func.count(Trade.id)).filter(Trade.timestamp >= today).scalar()

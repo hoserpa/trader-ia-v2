@@ -3,7 +3,7 @@ import sys
 import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "bot"))
-from database.crud import get_trades, get_stats_summary
+from database.crud import get_trades, get_operations, get_stats_summary
 from database.init_db import SessionLocal
 
 router = APIRouter()
@@ -20,6 +20,15 @@ def list_trades(limit: int = Query(default=50, ge=1, le=500), offset: int = 0):
             "price": t.price, "fee_eur": t.fee_eur, "pnl_eur": t.pnl_eur,
             "timestamp": t.timestamp.isoformat() + "Z", "mode": t.mode,
         } for t in trades]
+    finally:
+        db.close()
+
+
+@router.get("/operations")
+def list_operations(limit: int = Query(default=50, ge=1, le=500), offset: int = 0):
+    db = SessionLocal()
+    try:
+        return get_operations(db, limit, offset)
     finally:
         db.close()
 

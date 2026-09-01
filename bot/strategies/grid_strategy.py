@@ -9,6 +9,7 @@ a la volatilidad actual del mercado.
 import json
 from datetime import datetime, timezone
 from typing import Optional
+from uuid import uuid4
 from loguru import logger
 from config import config
 from trading.portfolio import Portfolio
@@ -366,6 +367,9 @@ class GridStrategy:
         level["filled_at"] = datetime.now(timezone.utc).isoformat()
         level["filled_price"] = fill_price
 
+        if not level.get("cycle_id"):
+            level["cycle_id"] = str(uuid4())
+
         spacing = self._state[pair]["spacing"]
         entry_price = level.get("entry_price", level["price"])
         amount = level["amount"]
@@ -391,6 +395,7 @@ class GridStrategy:
                 "amount": amount,
                 "value_eur": round(amount * sell_price, 2),
                 "entry_price": round(fill_price, 8),
+                "cycle_id": level["cycle_id"],
                 "status": "open",
                 "filled_at": None,
                 "filled_price": None,
@@ -418,6 +423,7 @@ class GridStrategy:
                 "amount": amount,
                 "value_eur": round(amount * buy_price, 2),
                 "entry_price": round(fill_price, 8),
+                "cycle_id": level["cycle_id"],
                 "status": "open",
                 "filled_at": None,
                 "filled_price": None,
@@ -501,6 +507,7 @@ class GridStrategy:
                     "fee_eur": round(fee_eur, 4),
                     "pnl_eur": round(pnl, 4) if isinstance(level.get("id"), str) else None,
                     "mode": config.trading.mode,
+                    "cycle_id": level.get("cycle_id"),
                 })
 
             await self.redis.publish(

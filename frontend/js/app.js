@@ -35,7 +35,7 @@ createApp({
         else if (msg.type === 'bot_status') botStatus.value = msg.data;
         else if (msg.type === 'price_update') prices.value[msg.data.pair] = msg.data.price;
         else if (msg.type === 'signal') { updateSignal(msg.data); if (botStatus.value.status === 'error') botStatus.value.status = 'running'; }
-        else if (msg.type === 'trade_executed') { trades.value.unshift(msg.data); loadTrades(); if (botStatus.value.status === 'error') botStatus.value.status = 'running'; }
+        else if (msg.type === 'trade_executed') { loadTrades(); if (botStatus.value.status === 'error') botStatus.value.status = 'running'; }
       };
       ws.onclose = () => {
         wsReconnectTimer = setTimeout(connectWS, 5000);
@@ -52,7 +52,7 @@ createApp({
       try {
         const [portRes, tradesRes, statsRes, sigRes, configRes, logsRes, pricesRes, gridRes] = await Promise.all([
           api.get('/portfolio'),
-          api.get('/trades?limit=50'),
+          api.get('/trades/operations?limit=50'),
           api.get('/trades/stats'),
           api.get('/market/signals'),
           api.get('/bot/config'),
@@ -72,7 +72,7 @@ createApp({
     };
 
     const loadTrades = async () => {
-      const res = await api.get('/trades?limit=50');
+      const res = await api.get('/trades/operations?limit=50');
       trades.value = res.data;
     };
 
@@ -97,7 +97,7 @@ createApp({
         stats.value = {};
         const portRes = await api.get('/portfolio');
         if (!portRes.data.error) portfolio.value = portRes.data;
-        trades.value = (await api.get('/trades?limit=50')).data;
+        trades.value = (await api.get('/trades/operations?limit=50')).data;
         latestSignals.value = (await api.get('/market/signals')).data;
         stats.value = (await api.get('/trades/stats')).data;
         await loadPortfolioHistory(historyDays.value);
@@ -193,16 +193,21 @@ createApp({
     const isBuy = (side) => side === 'buy' || side === 'buy_to_close';
     const tradeColor = (t) => {
       if (isBuy(t.side)) return 'buy';
-      if (t.pnl_eur != null) return t.pnl_eur > 0 ? 'win' : 'loss';
       return 'sell';
     };
+    const opSideLabel = (t) => {
+      if (t.status === 'open') return 'ABIERTA';
+      return isBuy(t.side) ? 'LARGO' : 'CORTO';
+    };
     const badgeClass = (t) => {
-      const c = tradeColor(t);
-      return c === 'win' ? 'badge-win' : c === 'loss' ? 'badge-loss' : c === 'buy' ? 'badge-buy' : 'badge-sell';
+      if (t.status === 'open') return 'badge-open';
+      return isBuy(t.side) ? 'badge-buy' : 'badge-sell';
     };
     const pnlClass = (t) => {
       if (t.pnl_eur == null) return '';
-      return t.pnl_eur > 0 ? 'positive' : 'negative';
+      if (t.pnl_eur > 0) return 'positive';
+      if (t.pnl_eur < 0) return 'negative';
+      return 'positive-neutral';
     };
     const formatPnl = (v) => {
       if (v == null) return '—';
@@ -250,7 +255,7 @@ createApp({
       portfolio, botStatus, botConfig, prices, trades, systemLogs,
       latestSignals, stats, gridState, historyDays, logContainer, openPositions,
       formatPrice, formatDate, modeClass, statusClass, statusTextClass, signalClass,
-      tradeColor, badgeClass, pnlClass, formatPnl,
+      tradeColor, badgeClass, pnlClass, formatPnl, opSideLabel,
       loadPortfolioHistory, resetPortfolio,
       configModalOpen, configForm, configGroups, configSaving, configSaved,
       openConfig, closeConfig, saveConfig, restoreField,
