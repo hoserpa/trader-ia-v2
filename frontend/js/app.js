@@ -27,7 +27,7 @@ createApp({
     const chartPair = ref('');
     const chartTimeframes = ref(['15m', '1h', '4h']);
     const chartTimeframe = ref('15m');
-    const chartDays = ref(30);
+    const chartDays = ref(7);
     let portfolioChart = null;
     let priceChart = null;
     let priceSeries = null;
@@ -222,7 +222,13 @@ createApp({
         low: c.low, close: c.close,
       }));
       series.setData(priceCandles);
-      chart.timeScale().fitContent();
+      const focusBars = Math.min(priceCandles.length, 150);
+      if (focusBars > 1) {
+        chart.timeScale().setVisibleLogicalRange({
+          from: priceCandles.length - focusBars,
+          to: priceCandles.length - 1,
+        });
+      }
       priceChart = chart;
       priceSeries = series;
     };
