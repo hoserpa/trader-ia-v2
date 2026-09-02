@@ -208,6 +208,38 @@ class GridStrategy:
         await self._save_global_state()
         logger.info("Grid pausado (niveles conservados para reanudar)")
 
+    async def reset(self):
+        """Reinicia el grid en caliente: limpia niveles, histórico y Redis, y
+        reinicializa los niveles desde cero (ciclo limpio sin reiniciar el contenedor)."""
+        for pair in list(self._state.keys()):
+            await self.redis.delete(REDIS_GRID_STATE_KEY.format(pair=pair))
+        await self.redis.delete(REDIS_GRID_GLOBAL_KEY)
+        self._state = {}
+        self._global_state = {
+            "enabled": True,
+            "pairs": config.grid.pairs,
+            "total_pnl_eur": 0.0,
+            "total_grid_trades": 0,
+            "total_fees_eur": 0.0,
+            "started_at": datetime.now(timezone.utc).isoformat(),
+        }
+        self._running = True
+
+        port_state = self.portfolio.get()
+        total_balance = port_state.get(
+            "total_value_eur",
+            port_state.get("balance_eur", config.trading.demo_initial_balance),
+        )
+        total_grid_capital = total_balance * config.grid.capital_pct
+        capital_per_pair = total_grid_capital / max(len(config.grid.pairs), 1)
+        for pair in config.grid.pairs:
+            price = await self._get_price(pair)
+            if not price:
+                continue
+            await self._init_pair_grid(pair, price, capital_per_pair)
+        await self._save_global_state()
+        logger.info(f"Grid reiniciado en caliente: {len(self._state)} pares desde cero")
+
     async def check_orders(self):
         """Verifica fills, recoloca órdenes e inicializa pares pendientes."""
         if not self._running or not config.grid.enabled:

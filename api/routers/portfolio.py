@@ -87,6 +87,18 @@ async def reset_full():
         await redis.set("portfolio:state", json.dumps(new_portfolio))
         await redis.delete("bot:stats")
         await redis.delete("open_positions")
+
+        # Limpia tambien el estado del grid (niveles e historico) y lo reinicia
+        # en caliente para garantizar un ciclo limpio sin reiniciar el contenedor.
+        from bot.strategies.grid_strategy import REDIS_GRID_STATE_KEY, REDIS_GRID_GLOBAL_KEY
+        from config import config
+        for pair in config.grid.pairs:
+            await redis.delete(REDIS_GRID_STATE_KEY.format(pair=pair))
+        await redis.delete(REDIS_GRID_GLOBAL_KEY)
+
+        from api.main import _trading_engine
+        if _trading_engine and getattr(_trading_engine, "grid_strategy", None):
+            await _trading_engine.grid_strategy.reset()
         
         return {"success": True, **result}
     finally:
