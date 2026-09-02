@@ -217,7 +217,7 @@ createApp({
         borderUpColor: '#4ade80', borderDownColor: '#f87171',
         wickUpColor: '#4ade80', wickDownColor: '#f87171',
       });
-      priceCandles = candles.map(c => ({
+      priceCandles = candles.slice().reverse().map(c => ({
         time: toPriceTime(c.timestamp), open: c.open, high: c.high,
         low: c.low, close: c.close,
       }));
