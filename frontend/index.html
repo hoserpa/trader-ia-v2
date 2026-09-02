@@ -174,8 +174,8 @@
             <td>{{ formatPrice(pos.entry_price) }}€</td>
             <td>{{ formatPrice(pos.current_price) }}€</td>
             <td :class="pos.pnl_eur >= 0 ? 'positive' : 'negative'">{{ pos.pnl_eur >= 0 ? '+' : '' }}{{ formatPrice(pos.pnl_eur) }}€ ({{ pos.pnl_pct?.toFixed(1) }}%)</td>
-            <td class="negative">{{ formatPrice(pos.stop_loss_price) }}€</td>
-            <td class="positive">{{ formatPrice(pos.take_profit_price) }}€</td>
+            <td class="negative">{{ pos.stop_loss_price != null ? formatPrice(pos.stop_loss_price) + '€' : '—' }}</td>
+            <td class="positive">{{ pos.take_profit_price != null ? formatPrice(pos.take_profit_price) + '€' : '—' }}</td>
           </tr>
         </tbody>
       </table>

@@ -16,7 +16,13 @@ async def get_portfolio():
     from api.main import get_redis
     redis = get_redis()
     raw = await redis.get("portfolio:state")
-    return json.loads(raw) if raw else {"error": "Portfolio no disponible aún"}
+    if not raw:
+        return {"error": "Portfolio no disponible aún"}
+    data = json.loads(raw)
+    # La fuente de verdad de posiciones abiertas es el dict positions (el grid lo
+    # puebla al abrir/cerrar ciclos); alineamos el contador con el.
+    data["open_positions"] = len(data.get("positions", {}))
+    return data
 
 
 @router.get("/history")

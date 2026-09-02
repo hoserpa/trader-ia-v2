@@ -143,6 +143,7 @@ class GridStrategy:
             logger.info("Grid: estado recuperado desde Redis, manteniendo niveles e histórico")
 
         self._reconcile_with_portfolio()
+        await self._restore_open_positions()
         self._running = True
         await self._save_global_state()
         logger.info(f"Grid activo en {len(self._state)} pares")
@@ -162,6 +163,35 @@ class GridStrategy:
         real_pnl = round(port.get("balance_eur", 0) - initial, 4)
         self._global_state["total_pnl_eur"] = real_pnl
         self._global_state["real_pnl_eur"] = real_pnl
+
+    async def _restore_open_positions(self):
+        """Rehidrata en portfolio.positions las posiciones abiertas tras un reinicio.
+
+        Fuente de verdad: la BD SQLite (tabla Trade), persistente e independiente del
+        estado volátil del grid en Redis. Una operacion abierta es aquella agrupada por
+        ciclo que aun no tiene contra-orden de cierre (status 'open').
+        """
+        try:
+            from database.crud import get_operations
+            from database.init_db import SessionLocal
+            with SessionLocal() as db:
+                ops = get_operations(db, limit=500)
+        except Exception as e:
+            logger.warning(f"Grid: no se pudieron restaurar posiciones abiertas: {e}")
+            return
+
+        for op in ops:
+            if op.get("status") != "open":
+                continue
+            pair = op["pair"]
+            position_type = "long" if op["side"] == "BUY" else "short"
+            await self._open_portfolio_position(
+                pair, op["entry_price"], op["amount_crypto"], position_type
+            )
+            logger.info(
+                f"Grid {pair}: posicion abierta restaurada "
+                f"({position_type} @ {op['entry_price']:.2f}e)"
+            )
 
     async def stop(self):
         """Detiene todos los grids."""
@@ -358,6 +388,24 @@ class GridStrategy:
 
         await self._save_pair_state(pair)
 
+    async def _open_portfolio_position(self, pair: str, entry_price: float, amount: float, position_type: str):
+        """Registra una posicion abierta del grid en el portafolio para el dashboard.
+
+        El grid cierra por cruce de nivel (no por SL/TP), por eso stop_loss/take_profit
+        se guardan como None para que el frontend los muestre como '—'.
+        """
+        await self.portfolio.add_position(pair, {
+            "position_type": position_type,
+            "entry_price": round(entry_price, 8),
+            "amount_crypto": round(amount, 8),
+            "amount_eur_invested": round(entry_price * amount, 4),
+            "current_price": round(entry_price, 8),
+            "pnl_eur": 0.0,
+            "pnl_pct": 0.0,
+            "stop_loss_price": None,
+            "take_profit_price": None,
+        })
+
     async def _handle_fill(self, pair: str, level: dict, fill_price: float):
         """Marca orden como llena, coloca counter-order y acredita PnL neto de comisiones.
 
@@ -411,6 +459,10 @@ class GridStrategy:
                 f"Grid {pair}: BUY {entry_price:.2f}e -> SELL {sell_price:.2f}e "
                 f"(fill={fill_price:.2f}, PnL={pnl:.4f}e, fee={fee_eur:.4f}e)"
             )
+            if not is_close:
+                await self._open_portfolio_position(pair, fill_price, amount, "long")
+            else:
+                await self.portfolio.remove_position(pair)
         else:
             buy_price = level["price"] - spacing
             counter_price = buy_price
@@ -439,6 +491,10 @@ class GridStrategy:
                 f"Grid {pair}: SELL {entry_price:.2f}e -> BUY {buy_price:.2f}e "
                 f"(fill={fill_price:.2f}, PnL={pnl:.4f}e, fee={fee_eur:.4f}e)"
             )
+            if not is_close:
+                await self._open_portfolio_position(pair, fill_price, amount, "short")
+            else:
+                await self.portfolio.remove_position(pair)
 
         self._state[pair]["pnl_eur"] += pnl
         self._state[pair]["fees_eur"] = self._state[pair].get("fees_eur", 0) + fee_eur
