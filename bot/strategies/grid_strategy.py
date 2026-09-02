@@ -194,14 +194,19 @@ class GridStrategy:
             )
 
     async def stop(self):
-        """Detiene todos los grids."""
+        """Pausa todos los grids conservando su estado (niveles e histórico).
+
+        No borra los niveles ni el PnL: estos se persisten intactos en Redis para que,
+        al reiniciar el contenedor, el grid continue donde quedo en lugar de
+        re-inicializarse desde cero y reabrir posiciones.
+        """
         self._running = False
-        for pair in list(self._state.keys()):
-            self._state[pair]["levels"] = []
-            await self._save_pair_state(pair)
+        if self._state:
+            for pair in list(self._state.keys()):
+                await self._save_pair_state(pair)
         self._global_state["enabled"] = False
         await self._save_global_state()
-        logger.info("Grid detenido")
+        logger.info("Grid pausado (niveles conservados para reanudar)")
 
     async def check_orders(self):
         """Verifica fills, recoloca órdenes e inicializa pares pendientes."""
@@ -673,7 +678,12 @@ class GridStrategy:
         for pair in config.grid.pairs:
             raw = await self.redis.get(REDIS_GRID_STATE_KEY.format(pair=pair))
             if raw:
-                self._state[pair] = json.loads(raw)
+                try:
+                    parsed = json.loads(raw)
+                except Exception:
+                    parsed = None
+                if parsed:
+                    self._state[pair] = parsed
 
         raw = await self.redis.get(REDIS_GRID_GLOBAL_KEY)
         if raw:
