@@ -23,7 +23,15 @@ createApp({
     const configSaving = ref(false);
     const configSaved = ref(false);
     const configFieldsMeta = ref([]);
+    const chartPairs = ref([]);
+    const chartPair = ref('');
+    const chartTimeframes = ref(['15m', '1h', '4h']);
+    const chartTimeframe = ref('15m');
+    const chartDays = ref(30);
     let portfolioChart = null;
+    let priceChart = null;
+    let priceSeries = null;
+    let priceCandles = [];
     let ws = null;
     let wsReconnectTimer = null;
 
@@ -34,6 +42,7 @@ createApp({
         if (msg.type === 'portfolio_update') portfolio.value = msg.data;
         else if (msg.type === 'bot_status') botStatus.value = msg.data;
         else if (msg.type === 'price_update') prices.value[msg.data.pair] = msg.data.price;
+        else if (msg.type === 'candle') { updateLiveCandle(msg.data); if (botStatus.value.status === 'error') botStatus.value.status = 'running'; }
         else if (msg.type === 'signal') { updateSignal(msg.data); if (botStatus.value.status === 'error') botStatus.value.status = 'running'; }
         else if (msg.type === 'trade_executed') { loadTrades(); if (botStatus.value.status === 'error') botStatus.value.status = 'running'; }
       };
@@ -188,6 +197,69 @@ createApp({
       });
     };
 
+    const toPriceTime = (iso) => Math.floor(new Date(iso).getTime() / 1000);
+
+    const renderPriceChart = (candles) => {
+      const el = document.getElementById('priceChart');
+      if (!el) return;
+      el.classList.toggle('empty', !candles.length);
+      if (priceChart) priceChart.remove();
+      const chart = ChartLightweight.create(el, {
+        autoSize: true,
+        layout: { background: { color: '#1c1f26' }, textColor: '#9ca3af' },
+        grid: { vertLines: { color: '#2d333b' }, horzLines: { color: '#2d333b' } },
+        rightPriceScale: { borderColor: '#2d333b' },
+        timeScale: { borderColor: '#2d333b' },
+        localization: { priceFormatter: p => p.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) },
+      });
+      const series = chart.addCandlestickSeries({
+        upColor: '#4ade80', downColor: '#f87171',
+        borderUpColor: '#4ade80', borderDownColor: '#f87171',
+        wickUpColor: '#4ade80', wickDownColor: '#f87171',
+      });
+      priceCandles = candles.map(c => ({
+        time: toPriceTime(c.timestamp), open: c.open, high: c.high,
+        low: c.low, close: c.close,
+      }));
+      series.setData(priceCandles);
+      chart.timeScale().fitContent();
+      priceChart = chart;
+      priceSeries = series;
+    };
+
+    const loadPriceChart = async () => {
+      if (!chartPair.value) return;
+      const perDay = chartTimeframe.value === '15m' ? 96 : chartTimeframe.value === '1h' ? 24 : 6;
+      const limit = Math.min(chartDays.value * perDay, 10000);
+      try {
+        const res = await api.get(`/market/candles`, { params: { pair: chartPair.value, timeframe: chartTimeframe.value, days: chartDays.value, limit } });
+        renderPriceChart(res.data);
+      } catch (e) { console.error('Error cargando velas:', e); }
+    };
+
+    const selectChartPair = (p) => { chartPair.value = p; loadPriceChart(); };
+    const selectChartTimeframe = (tf) => { chartTimeframe.value = tf; loadPriceChart(); };
+    const selectChartRange = (d) => { chartDays.value = d; loadPriceChart(); };
+
+    const updateLiveCandle = (data) => {
+      if (!priceSeries || !priceCandles.length) return;
+      // Solo la vela nativa (15m) se actualiza en vivo; los timeframes agregados se recargan.
+      if (chartTimeframe.value !== '15m') return;
+      if (data.pair !== chartPair.value) return;
+      const t = toPriceTime(data.timestamp || new Date().toISOString());
+      const last = priceCandles[priceCandles.length - 1];
+      if (t === last.time) {
+        last.high = Math.max(last.high, data.close);
+        last.low = Math.min(last.low, data.close);
+        last.close = data.close;
+        priceSeries.update(last);
+      } else if (t > last.time) {
+        const bar = { time: t, open: last.close, high: data.close, low: data.close, close: data.close };
+        priceCandles.push(bar);
+        priceSeries.update(bar);
+      }
+    };
+
     const formatPrice = (v) => v != null ? Number(v).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
     const formatDate = (ts) => new Date(ts).toLocaleString('es-ES');
     const isBuy = (side) => side === 'buy' || side === 'buy_to_close';
@@ -242,8 +314,12 @@ createApp({
     onMounted(async () => {
       await loadAll();
       await loadPortfolioHistory(30);
+      chartPairs.value = Object.keys(prices.value) || [];
+      chartPair.value = chartPairs.value[0] || '';
+      await loadPriceChart();
       connectWS();
       setInterval(loadAll, 60000);
+      setInterval(loadPriceChart, 60000);
     });
 
     onUnmounted(() => {
@@ -257,6 +333,8 @@ createApp({
       formatPrice, formatDate, modeClass, statusClass, statusTextClass, signalClass,
       tradeColor, badgeClass, pnlClass, formatPnl, opSideLabel,
       loadPortfolioHistory, resetPortfolio,
+      chartPairs, chartPair, chartTimeframes, chartTimeframe, chartDays,
+      selectChartPair, selectChartTimeframe, selectChartRange,
       configModalOpen, configForm, configGroups, configSaving, configSaved,
       openConfig, closeConfig, saveConfig, restoreField,
     };

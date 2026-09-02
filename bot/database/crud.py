@@ -21,14 +21,15 @@ def upsert_candles(db: Session, candles: list[dict]) -> int:
     return inserted
 
 
-def get_candles(db: Session, pair: str, timeframe: str, limit: int = 500) -> list[Candle]:
-    return (
+def get_candles(db: Session, pair: str, timeframe: str, limit: int = 500, since=None) -> list[Candle]:
+    query = (
         db.query(Candle)
         .filter_by(pair=pair, timeframe=timeframe)
         .order_by(desc(Candle.timestamp))
-        .limit(limit)
-        .all()
     )
+    if since is not None:
+        query = query.filter(Candle.timestamp >= since)
+    return query.limit(limit).all()
 
 
 def get_candle_count(db: Session, pair: str, timeframe: str) -> int:

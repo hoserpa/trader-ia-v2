@@ -28,7 +28,7 @@ async def websocket_live(websocket: WebSocket):
             await websocket.send_text(json.dumps({"type": "portfolio_update", "data": json.loads(portfolio)}))
 
         pubsub = redis.pubsub()
-        await pubsub.subscribe("bot:live_updates", "price_update")
+        await pubsub.subscribe("bot:live_updates", "price_update", "new_candle")
 
         async def reader():
             while True:
