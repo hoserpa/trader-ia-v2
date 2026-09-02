@@ -204,7 +204,7 @@ createApp({
       if (!el) return;
       el.classList.toggle('empty', !candles.length);
       if (priceChart) priceChart.remove();
-      const chart = ChartLightweight.create(el, {
+      const chart = LightweightCharts.createChart(el, {
         autoSize: true,
         layout: { background: { color: '#1c1f26' }, textColor: '#9ca3af' },
         grid: { vertLines: { color: '#2d333b' }, horzLines: { color: '#2d333b' } },
