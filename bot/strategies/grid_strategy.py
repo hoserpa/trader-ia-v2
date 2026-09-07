@@ -634,6 +634,83 @@ class GridStrategy:
             recent_filled = filled[-MAX_FILLED_HISTORY:]
             self._state[pair]["levels"] = open_levels + recent_filled
 
+    async def _liquidate_pair_positions(self, pair: str, current_price: float) -> None:
+        """Liquida limpiamente las posiciones abiertas del par antes de recentrar.
+
+        Antes de reconstruir el rango por desviacion, cierra virtualmente cada nivel
+        abierto contra el precio actual acreditando su PnL neto y registrando el ciclo
+        como cerrado. Evita que el rebalance abandone posiciones huerfanas sin contra
+        orden (el bug que dejaba shorts/longs sin cerrar ni reconciliar).
+        """
+        state = self._state[pair]
+        fee_rate = config.exchange.maker_fee
+        liquidated = []
+
+        for level in state["levels"]:
+            if level["status"] != "open":
+                continue
+            entry = level.get("entry_price", level["price"])
+            amount = level["amount"]
+            side = level["side"]
+            is_counter = isinstance(level.get("id"), str)
+            fee_eur = current_price * amount * fee_rate
+
+            if is_counter:
+                if side == "buy":
+                    pnl = (entry - current_price) * amount - fee_eur
+                else:
+                    pnl = (current_price - entry) * amount - fee_eur
+            elif side == "buy":
+                pnl = (current_price - entry) * amount - fee_eur
+            else:
+                pnl = (entry - current_price) * amount - fee_eur
+
+            close_level = {
+                "id": f"{level.get('id')}_liquidated",
+                "side": side,
+                "amount": amount,
+                "entry_price": entry,
+                "cycle_id": level.get("cycle_id") or str(uuid4()),
+                "fee_eur": fee_eur,
+            }
+
+            state["pnl_eur"] = state.get("pnl_eur", 0) + pnl
+            state["fees_eur"] = state.get("fees_eur", 0) + fee_eur
+            state["total_grid_trades"] = state.get("total_grid_trades", 0) + 1
+            self._global_state["total_pnl_eur"] = (
+                self._global_state.get("total_pnl_eur", 0) + pnl
+            )
+            self._global_state["total_fees_eur"] = (
+                self._global_state.get("total_fees_eur", 0) + fee_eur
+            )
+            self._global_state["total_grid_trades"] = (
+                self._global_state.get("total_grid_trades", 0) + 1
+            )
+
+            await self._persist_grid_fill(pair, close_level, current_price, pnl, fee_eur)
+            level["status"] = "filled"
+            level["filled_at"] = datetime.now(timezone.utc).isoformat()
+            level["filled_price"] = current_price
+            liquidated.append(
+                (level.get("id"), side, round(pnl, 4))
+            )
+
+        total_capital_used = max(
+            sum(l["value_eur"] for l in state["levels"] if l["status"] == "open"),
+            1,
+        )
+        state["pnl_pct"] = state["pnl_eur"] / total_capital_used * 100
+
+        await self.portfolio.remove_position(pair)
+        await self._save_global_state()
+        await self._save_pair_state(pair)
+
+        if liquidated:
+            logger.info(
+                f"Grid {pair}: {len(liquidated)} posiciones liquidadas "
+                f"@ {current_price:.2f}e antes de recentrar: {liquidated}"
+            )
+
     async def _check_rebalance(self, pair: str, current_price: float):
         """Recentra el grid si el precio se desvió del centro."""
         center = self._state[pair]["center_price"]
@@ -642,8 +719,9 @@ class GridStrategy:
 
         if deviation > threshold:
             logger.info(
-                f"Grid {pair}: precio desviado {deviation:.1%} > {threshold:.0%}, recalculando..."
+                f"Grid {pair}: precio desviado {deviation:.1%} > {threshold:.0%}, liquidando y recalculando..."
             )
+            await self._liquidate_pair_positions(pair, current_price)
             pnl = self._state[pair]["pnl_eur"]
             fees = self._state[pair].get("fees_eur", 0)
             trades_count = self._state[pair]["total_grid_trades"]
