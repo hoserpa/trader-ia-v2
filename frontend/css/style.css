@@ -71,6 +71,7 @@ h2 { font-size: 1rem; font-weight: 600; margin-bottom: 12px; width: 100%; }
 
 .table-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -16px; padding: 0 16px; }
 .data-table { width: 100%; min-width: 500px; border-collapse: collapse; background: #1c1f26; border-radius: 12px; overflow: hidden; margin-bottom: 20px; }
+.data-table .mono { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace; color: #9ca3af; }
 .data-table th, .data-table td { padding: 10px 12px; text-align: left; font-size: 0.85rem; }
 .data-table th { background: #2d333b; font-weight: 600; font-size: 0.75rem; color: #9ca3af; position: sticky; top: 0; }
 .data-table tr:not(:last-child) td { border-bottom: 1px solid #2d333b; }

@@ -185,10 +185,11 @@
     <h2>Posiciones abiertas</h2>
     <div class="table-wrapper">
       <table class="data-table">
-        <thead><tr><th>Par</th><th>Tipo</th><th>Entrada</th><th>Actual</th><th>PnL</th><th>SL</th><th>TP</th></tr></thead>
+        <thead><tr><th>Ciclo</th><th>Par</th><th>Tipo</th><th>Entrada</th><th>Actual</th><th>PnL</th><th>SL</th><th>TP</th></tr></thead>
         <tbody>
           <tr v-for="(pos, pair) in portfolio.positions" :key="pair">
-            <td>{{ pair }}</td>
+            <td class="mono">{{ pos.cycle_id?.slice(0, 8) }}</td>
+            <td>{{ pos.pair }}</td>
             <td><span class="badge" :class="(pos.position_type || 'long') === 'long' ? 'badge-buy' : 'badge-sell'">{{ (pos.position_type || 'long').toUpperCase() }}</span></td>
             <td>{{ formatPrice(pos.entry_price) }}€</td>
             <td>{{ formatPrice(pos.current_price) }}€</td>

@@ -39,7 +39,7 @@ createApp({
       ws = new WebSocket(WS_URL);
       ws.onmessage = (e) => {
         const msg = JSON.parse(e.data);
-        if (msg.type === 'portfolio_update') portfolio.value = msg.data;
+        if (msg.type === 'portfolio_update') loadPortfolio();
         else if (msg.type === 'bot_status') botStatus.value = msg.data;
         else if (msg.type === 'price_update') prices.value[msg.data.pair] = msg.data.price;
         else if (msg.type === 'candle') { updateLiveCandle(msg.data); if (botStatus.value.status === 'error') botStatus.value.status = 'running'; }
@@ -57,10 +57,16 @@ createApp({
       else latestSignals.value.push(data);
     };
 
+    const loadPortfolio = async () => {
+      try {
+        const portRes = await api.get('/portfolio');
+        if (!portRes.data.error) portfolio.value = portRes.data;
+      } catch (e) { console.error('Error cargando portfolio:', e); }
+    };
+
     const loadAll = async () => {
       try {
-        const [portRes, tradesRes, statsRes, sigRes, configRes, logsRes, pricesRes, gridRes] = await Promise.all([
-          api.get('/portfolio'),
+        const [tradesRes, statsRes, sigRes, configRes, logsRes, pricesRes, gridRes] = await Promise.all([
           api.get('/trades/operations?limit=50'),
           api.get('/trades/stats'),
           api.get('/market/signals'),
@@ -69,7 +75,7 @@ createApp({
           api.get('/market/prices'),
           api.get('/bot/grid'),
         ]);
-        portfolio.value = portRes.data;
+        await loadPortfolio();
         trades.value = tradesRes.data;
         stats.value = statsRes.data;
         latestSignals.value = dedupSignals(sigRes.data);

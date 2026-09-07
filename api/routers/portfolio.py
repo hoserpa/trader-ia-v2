@@ -19,9 +19,56 @@ async def get_portfolio():
     if not raw:
         return {"error": "Portfolio no disponible aún"}
     data = json.loads(raw)
-    # La fuente de verdad de posiciones abiertas es el dict positions (el grid lo
-    # puebla al abrir/cerrar ciclos); alineamos el contador con el.
-    data["open_positions"] = len(data.get("positions", {}))
+
+    # Las posiciones abiertas se derivan por ciclo (get_operations agrupa por
+    # cycle_id), no por par: así se ven shorts/longs solapados del mismo par.
+    # El PnL no realizado se calcula con el precio actual (como update_valuations).
+    from database.crud import get_operations
+    from config import config
+    current_prices: dict = {}
+    open_positions: dict = {}
+
+    db = SessionLocal()
+    try:
+        ops = get_operations(db, limit=100)
+    finally:
+        db.close()
+
+    for op in ops:
+        if op["status"] != "open":
+            continue
+        pair = op["pair"]
+        if pair not in current_prices:
+            p_raw = await redis.get(f"price:{pair}")
+            try:
+                current_prices[pair] = float(p_raw) if p_raw else None
+            except (ValueError, TypeError):
+                current_prices[pair] = None
+        price = current_prices.get(pair) or op["entry_price"]
+        amount = op["amount_crypto"]
+        invested = op["amount_eur_entry"]
+        current_value = amount * price
+        exit_fee = current_value * config.exchange.taker_fee
+        if op["side"] == "SELL":
+            pnl = invested - current_value - exit_fee
+        else:
+            pnl = current_value - invested - exit_fee
+        open_positions[op["id"]] = {
+            "cycle_id": op["id"],
+            "pair": pair,
+            "position_type": "short" if op["side"] == "SELL" else "long",
+            "entry_price": op["entry_price"],
+            "amount_crypto": amount,
+            "amount_eur_invested": round(invested, 4),
+            "current_price": round(price, 8),
+            "pnl_eur": round(pnl, 4),
+            "pnl_pct": round(pnl / invested * 100, 4) if invested > 0 else 0.0,
+            "stop_loss_price": None,
+            "take_profit_price": None,
+        }
+
+    data["positions"] = open_positions
+    data["open_positions"] = len(open_positions)
     return data
 
 
