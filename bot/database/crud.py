@@ -156,8 +156,10 @@ def get_operations(db: Session, limit: int = 50, offset: int = 0) -> list[dict]:
     """Devuelve operaciones del grid agrupadas por ciclo (entrada + cierre).
 
     Cada operacion agrupa la pierna de apertura y la de cierre que comparten
-    cycle_id. Para trades sin cycle_id (historicos), se agrupan por position_id
-    o se devuelven como operacion unica con status abierta.
+    cycle_id. El cierre es cualquier pierna con pnl_eur (incluye ciclos de una
+    sola pierna liquidada por rebalance). Para trades sin cycle_id
+    (historicos), se agrupan por position_id o se devuelven como operacion
+    unica con status abierta.
 
     Returns:
         list de dicts: {
@@ -186,7 +188,7 @@ def get_operations(db: Session, limit: int = 50, offset: int = 0) -> list[dict]:
             continue
         items.sort(key=lambda x: x.timestamp)
         opening = items[0]
-        closing = next((x for x in items[1:] if x.pnl_eur is not None), None)
+        closing = next((x for x in items if x.pnl_eur is not None), None)
         side = opening.side
         total_fees = round(sum(x.fee_eur for x in items), 4)
         if closing:
@@ -250,11 +252,11 @@ def get_recent_decisions(db: Session, limit: int = 50) -> list[ModelDecision]:
 
 
 def get_stats_summary(db: Session) -> dict:
-    """Estadisticas derivadas de las operaciones (ciclos) del grid en la tabla trades.
+    """Estadisticas derivadas de los trades del grid en la tabla trades.
 
-    El grid solo escribe en `trades` (no en `positions`), por lo que las metricas se
-    calculan agrupando trades por ciclo (cycle_id, con fallback por id) y clasificando
-    cada ciclo como cerrado (tiene pierna de cierre con pnl_eur) o abierto (solo apertura).
+    El grid escribe pierna a pierna (apertura sin pnl, cierres con pnl). Las
+    metricas se calculan sobre TODOS los cierres (piernas con pnl_eur), no solo
+    el primero de cada ciclo, para no subcontar ciclos con varios rellenos.
     """
     today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     today_errors = db.query(func.count(SystemLog.id)).filter(
@@ -273,60 +275,59 @@ def get_stats_summary(db: Session) -> dict:
             order.append(key)
         groups[key].append(t)
 
-    closed_pnls = []
-    closed_today = 0
-    closed_today_wins = 0
+    pnls = []
+    pnl_pcts = []
     total_fees = 0.0
-    open_ops = 0
+    today_pnls = []
     for key in order:
         items = groups[key]
         items.sort(key=lambda x: x.timestamp)
-        closing = next((x for x in items if x.pnl_eur is not None), None)
         total_fees += round(sum(x.fee_eur for x in items), 4)
-        if closing:
-            closed_pnls.append(closing.pnl_eur)
-            if closing.timestamp >= today:
-                closed_today += 1
-                if closing.pnl_eur > 0:
-                    closed_today_wins += 1
-        else:
-            open_ops += 1
+        for x in items:
+            if x.pnl_eur is None:
+                continue
+            pnls.append(x.pnl_eur)
+            notional = round(x.amount_crypto * x.price, 4)
+            pnl_pcts.append(x.pnl_eur / notional * 100 if notional else 0.0)
+            if x.timestamp >= today:
+                today_pnls.append(x.pnl_eur)
 
+    open_ops = sum(1 for k in order if all(x.pnl_eur is None for x in groups[k]))
     total_ops = len(order)
     total_trades = len(trades)
-    wins = sum(1 for p in closed_pnls if p > 0)
-    losses = sum(1 for p in closed_pnls if p < 0)
-    flat = sum(1 for p in closed_pnls if p == 0)
-    total_pnl = round(sum(closed_pnls), 4)
-    win_rate = (wins / len(closed_pnls) * 100) if closed_pnls else 0
+    wins = sum(1 for p in pnls if p > 0)
+    losses = sum(1 for p in pnls if p < 0)
+    flat = sum(1 for p in pnls if p == 0)
+    total_pnl = round(sum(pnls), 4)
+    win_rate = (wins / len(pnls) * 100) if pnls else 0
+    avg_pnl_pct = round(sum(pnl_pcts) / len(pnl_pcts), 2) if pnl_pcts else 0.0
 
-    today_openings = [items[0] for items in (groups[k] for k in order) if items[0].timestamp >= today]
-    today_closed_count = closed_today
-    today_wins = closed_today_wins
+    today_wins = sum(1 for p in today_pnls if p > 0)
+    today_losses = sum(1 for p in today_pnls if p < 0)
 
-    best_trade = max(closed_pnls) if closed_pnls else 0
-    worst_trade = min(closed_pnls) if closed_pnls else 0
+    best_trade = max(pnls) if pnls else 0
+    worst_trade = min(pnls) if pnls else 0
     max_drawdown = calculate_max_drawdown_from_snapshots(db)
 
     return {
         "total_trades": total_trades,
         "total_operations": total_ops,
-        "closed_positions": len(closed_pnls),
-        "closed_operations": len(closed_pnls),
+        "closed_positions": len(pnls),
+        "closed_operations": len(pnls),
         "open_operations": open_ops,
         "wins_total": wins,
         "losses_total": losses,
         "flat_total": flat,
         "win_rate": round(win_rate, 2),
-        "avg_pnl_eur": round(total_pnl / len(closed_pnls), 4) if closed_pnls else 0,
-        "avg_pnl_pct": 0.0,
+        "avg_pnl_eur": round(total_pnl / len(pnls), 4) if pnls else 0,
+        "avg_pnl_pct": avg_pnl_pct,
         "total_pnl_eur": total_pnl,
         "total_fees_eur": round(total_fees, 4),
-        "trades_today": len(today_openings),
-        "today_operations": len(today_openings),
-        "today_closed": today_closed_count,
+        "trades_today": len(today_pnls),
+        "today_operations": len(today_pnls),
+        "today_closed": len(today_pnls),
         "wins_today": today_wins,
-        "losses_today": today_closed_count - today_wins,
+        "losses_today": today_losses,
         "best_trade": round(best_trade, 4),
         "worst_trade": round(worst_trade, 4),
         "max_drawdown": max_drawdown,
