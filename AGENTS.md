@@ -1,25 +1,29 @@
 # AGENTS.md - Crypto Trader Bot
 
+> **Documento de trabajo del agente.** Actualizado a la realidad operativa: **grid demo-only**. El ML/entrenamiento es **legado** (ver sección final).
+
 ## Project Overview
 
-This is a Python-based cryptocurrency trading bot using LightGBM ML model, FastAPI backend, and Vue.js frontend. It connects to Kraken API for live trading.
+Bot Python de trading **grid** (estrategia de cuadrícula) que corre en **demo** sobre Kraken (BTC/EUR, ETH/EUR, SOL/EUR), con dashboard web integrado en tiempo real.
 
-- **Objective**: 2-4% monthly return (realistic target)
+- **Objective (realista)**: 2-5% mensual a **leverage 1** (sin leverage demo; no usar >1 en demo)
 - **Python**: 3.11 (via Docker)
-- **Main Dependencies**: ccxt, pandas, lightgbm, fastapi, sqlalchemy, redis, loguru
-- **Database**: SQLite + Redis
+- **Main Dependencies**: ccxt, pandas, fastapi, sqlalchemy, redis, loguru
+- **Database**: SQLite + Redis (demo)
 - **Target**: Raspberry Pi 3 (ARM), Docker deployment
+- **Servicios Docker**: `redis` + `api` (el **grid corre dentro del `api`**, no hay servicio `bot` separado)
 
 ---
 
 ## Directory Structure
 
 ```
-bot/           - Main trading bot code
-api/           - FastAPI backend
-training/      - Model training scripts
-frontend/      - Vue.js dashboard (CDN-based, no build step)
-scripts/       - Utility scripts (backup, etc.)
+bot/           - Código principal del bot (motor + estrategia grid + portfolio + broker demo)
+api/           - FastAPI backend (contiene y arranca el grid)
+redis/         - Servicio Redis (infraestructura)
+frontend/      - Dashboard Vue.js (CDN, sin build step)
+training/      - Scripts de entrenamiento (LEGADO ML - no se usan en grid)
+scripts/       - Utilidades (backup, regen_snapshots, etc.)
 ```
 
 ---
@@ -32,30 +36,25 @@ scripts/       - Utility scripts (backup, etc.)
 # Bot dependencies
 pip install -r bot/requirements.txt
 
-# API dependencies  
+# API dependencies
 pip install -r api/requirements.txt
 ```
 
-### Run the Bot
+### Run the Bot (grid dentro del api)
 
 ```bash
-# From bot/ directory
-python main.py
-
-# Or via Docker
-docker compose up -d
-```
-
-### Run the API
-
-```bash
-cd api
+# Desde api/ (el api arranca y gestiona el grid)
 uvicorn main:app --host 0.0.0.0 --port 8000
+
+# O via Docker (recomendado)
+docker compose up -d --build
 ```
+
+---
 
 ### Testing
 
-No formal test suite exists. To run ad-hoc tests:
+No existe suite formal de tests. Para pruebas ad-hoc:
 
 ```bash
 # Single test file (pytest)
@@ -70,141 +69,36 @@ pytest --cov=bot --cov-report=term-missing
 
 ---
 
-## Code Style Guidelines
-
-### Imports
-
-- Standard library first, then third-party, then local
-- Group by: stdlib → external → project
-- Example:
-```python
-import os
-from datetime import datetime
-
-import ccxt
-import pandas as pd
-from sqlalchemy import Column
-
-from bot.database.models import Base
-```
-
-### Formatting
-
-- **Line length**: 100 characters max
-- **Indentation**: 4 spaces (no tabs)
-- **Blank lines**: 2 between top-level definitions, 1 between methods
-- Use Black for formatting if available
-
-### Types
-
-- Use type hints for all function signatures
-- Use dataclasses for configuration objects
-- Example:
-```python
-from dataclasses import dataclass, field
-
-@dataclass
-class Config:
-    api_key: str = field(default_factory=lambda: os.getenv("API_KEY", ""))
-    timeout: int = 30
-
-def fetch_data(pair: str, limit: int) -> pd.DataFrame:
-    ...
-```
-
-### Naming Conventions
-
-- **Modules/Files**: snake_case (e.g., `risk_manager.py`, `trading_engine.py`)
-- **Classes**: PascalCase (e.g., `RiskManager`, `TradingEngine`)
-- **Functions/Variables**: snake_case (e.g., `calculate_position_size`, `max_risk_pct`)
-- **Constants**: UPPER_SNAKE_CASE (e.g., `MAX_POSITIONS`, `DEFAULT_TIMEOUT`)
-- **Private methods**: prefix with `_` (e.g., `_validate_config`)
-
-### Error Handling
-
-- Use custom exceptions for domain errors
-- Log errors with context using loguru
-- Never expose raw exceptions to API clients
-- Example:
-```python
-class TradingError(Exception):
-    pass
-
-try:
-    await execute_trade(order)
-except InsufficientBalanceError as e:
-    logger.warning(f"Insufficient balance: {e}")
-    raise HTTPException(status_code=400, detail=str(e))
-```
-
-### Docstrings
-
-- Use Google-style docstrings for modules and public functions
-- Minimal comments - code should be self-documenting
-```python
-def calculate_pnl(entry_price: float, current_price: float, size: float) -> float:
-    """Calculate profit/loss for a position.
-    
-    Args:
-        entry_price: Price at which position was opened
-        current_price: Current market price
-        size: Position size in base currency
-        
-    Returns:
-        PnL in quote currency
-    """
-    return (current_price - entry_price) * size
-```
-
-### Database
-
-- Use SQLAlchemy 2.0 with declarative base
-- Always use async sessions with aioredis
-- migrations via Alembic (if needed)
-
-### Async Code
-
-- Use `async`/`await` for I/O-bound operations
-- Use `httpx` for async HTTP requests
-- Use ` asyncio` for concurrency
-
-### Configuration
-
-- All config via environment variables
-- Use `python-dotenv` for local development
-- Use dataclasses in `bot/config.py` to validate on startup
-- Never hardcode secrets in code
-
-### Logging
-
-- Use loguru for structured logging
-- Log levels: DEBUG (dev), INFO (normal), WARNING (recoverable), ERROR (failures)
-- Include context in log messages
-```python
-logger.info(f"Trade executed: {side} {size} {pair} @ {price}")
-```
-
----
-
 ## Environment Variables
 
-Create `.env` file in project root:
+Crea `.env` en la raíz del proyecto:
 
 ```env
-# Trading
+# Modo
 TRADING_MODE=demo
+
+# Pares
 TRADING_PAIRS=BTC/EUR,ETH/EUR,SOL/EUR
+
+# Exchange (demo no necesita API keys; usa demo_trader)
 EXCHANGE=kraken
 
-# Exchange API
-KRAKEN_API_KEY=
-KRAKEN_API_SECRET=
+# -----------------------------------------------
+# GRID (operativa activa)
+# -----------------------------------------------
+GRID_ENABLED=true
+GRID_PAIRS=BTC/EUR,ETH/EUR,SOL/EUR
+GRID_LEVERAGE=1          # realista: 1× (2-5%/mes)
+GRID_LEVELS=6            # niveles por par
+GRID_RANGE_PCT=0.08      # rango total 8% (spacing derivado ≈ range/levels >2×fee)
+GRID_CAPITAL_PCT=0.90
+GRID_REBALANCE_THRESHOLD=0.08
+GRID_STOP_LOSS_PCT=0.05
+GRID_POLL_INTERVAL=15
+GRID_ATR_ADAPTIVE=false
 
 # Database
 SQLITE_DB_PATH=/app/data/crypto_trader.db
-
-# Model
-MODEL_PATH=/app/model/trained_model.pkl
 
 # API
 API_PORT=8000
@@ -216,11 +110,13 @@ API_PASSWORD=changeme
 
 ## API Endpoints
 
-- `GET /api/portfolio` - Current portfolio state
-- `GET /api/trades` - Trade history
-- `GET /api/signals` - Recent trading signals
-- `GET /api/status` - Bot status
-- `WS /ws` - Real-time updates
+- `GET /api/portfolio` - Estado actual del portafolio
+- `GET /api/trades` - Historial de operaciones
+- `GET /api/operations` - Historial de operaciones (ciclo grid)
+- `GET /api/trades/stats` - Estadísticas de trading
+- `GET /api/bot/status` - Estado del bot
+- `GET /api/signals` - Señales recientes (legacy ML; vacío en grid)
+- `WS /ws` - Actualizaciones en tiempo real
 
 ---
 
@@ -234,7 +130,7 @@ API_PASSWORD=changeme
 ### Archivos Docker
 
 - `Dockerfile` - Imagen Python 3.11 slim con dependencias
-- `docker compose.yml` - Servicios: redis, bot, api
+- `docker-compose.yml` - Servicios: `redis`, `api`
 
 ### Comandos
 
@@ -248,65 +144,72 @@ docker compose up -d --build
 
 # 3. Ver logs
 docker compose logs -f        # todos los servicios
-docker compose logs -f bot    # solo el bot
-docker compose logs -f api    # solo la API
+docker compose logs -f api    # solo la API/grid
+docker compose logs -f redis  # solo Redis
 
 # 4. Estado de servicios
 docker compose ps
-
-# 5. Reiniciar servicio específico
-docker compose restart bot
-docker compose restart api
-
-# 6. Detener servicios
-docker compose down
-
-# 7. Reconstruir un servicio
-docker compose build bot
-docker compose up -d bot
 ```
 
-### Raspberry Pi - Notas especiales
+---
 
-```bash
-# Verificar arquitectura ARM
-uname -m  # debe mostrar armv7l o aarch64
+## Grid Strategy (referencia rápida)
 
-# Raspberry Pi 3 (ARM32): puede requerir compilación de dependencias
-# Solución: usar imagen python:3.11-slim y confiar en wheels precompilados
+- **Engine**: `bot/trading/engine.py` - bucle de monitoreo y coordinación; reconcilia el PnL total con el balance real del portfolio (BD como fuente de verdad), regenera snapshots con throttle (1/hora o cambio >0.01), restaura posiciones abiertas al reiniciar.
+- **Grid**: `bot/strategies/grid_strategy.py` - 3 pares, 6 niveles/par, rango 8%, spacing ~3.2%, leverage 1, capital 90%, stop-loss 5%, poll 15s, ATR-adaptive desactivado.
+- **Demo**: `bot/trading/demo_trader.py` - sin ejecución real; el PnL se acredita al balance simulado.
+- **Clave grid**: cada ciclo lleno captura el spread entre niveles; el PnL por ciclo = spread − 2×fee. No es rentable fijar spacing menor que ~2×fee.
+- Cuando el precio se desvía del centro >8% (rebalance threshold), el grid **liquida posiciones y recentra** (rebalance). Si la fuga supera el stop-loss, cierra con pérdida.
 
-# Si hay problemas de dependencias nativas, instalar build-essential:
-sudo apt install build-essential libffi-dev libssl-dev
+---
+
+## Code Style Guidelines (vigentes)
+
+### Imports
+
+- Standard library first, then third-party, then local
+- Group by: stdlib → external → local
+- Example:
+```python
+import os
+from datetime import datetime
+
+import ccxt
+import pandas as pd
+from sqlalchemy import Column
+
+from bot.database.models import Base
 ```
 
-### Desarrollo
+### Types
 
-```bash
-# Modo desarrollo con live reload
-docker compose up -d --build
+- Use type hints for all function signatures
+- Use dataclasses for configuration objects
+- Example:
+```python
+from dataclasses import dataclass, field
 
-# Editar código en host y los cambios se reflejan automáticamente
-# (API tiene --reload, Bot requiere reiniciar)
-
-# Acceder a contenedores
-docker exec -it crypto_bot /bin/bash
-docker exec -it crypto_api /bin/bash
-docker exec -it crypto_redis redis-cli
+@dataclass
+class Config:
+    initial_balance: float = field(default_factory=lambda: float(os.getenv("DEMO_INITIAL_BALANCE", "100")))
 ```
 
-### Troubleshooting
+### Error Handling
 
-```bash
-# Verificar que Redis esté funcionando
-docker compose logs redis
+- Use custom exceptions for domain errors
+- Log errors with context using loguru
+- Never expose raw exceptions to API clients
 
-# Reiniciar Redis
-docker compose restart redis
+### Docstrings
 
-# Ver uso de recursos
-docker stats
+- Use Google-style docstrings for modules and public functions
 
-# Limpiar volúmenes si hay problemas
-docker compose down -v
-docker compose up -d --build
-```
+---
+
+## Legado ML (desactivado)
+
+El proyecto arrancó como un bot LightGBM con señales de compra/venta entrenadas en Colab. **Esa ruta está desactivada**: el grid corre sin modelo, y la operativa real no usa ML.
+
+- **No mezclar**: no enciendas señales ML junto al grid sin validar en paper-trading primero.
+- Archivos que siguen existiendo pero NO se usan en la operativa grid: `bot/model/predictor.py`, `training/*`, `bot/scheduler/*` (ML).
+- Para reactivar (no recomendado): entrenar `training/train_model.py`, colocar `model/trained_model.pkl` y conectar el `TradingEngine` al interpretator del modelo.

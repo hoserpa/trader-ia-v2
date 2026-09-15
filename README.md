@@ -1,44 +1,78 @@
-# Crypto Trader Bot
+# Crypto Trader Bot - Grid (Demo)
 
-Bot de trading automatizado de criptomonedas usando aprendizaje automático (LightGBM) con interfaz web integrada.
+Bot Python de trading **grid** (estrategia de cuadrícula) que corre en modo **demo** sobre **Kraken** (pares BTC/EUR, ETH/EUR, SOL/EUR), con dashboard web en tiempo real y API FastAPI. Desplegado en **Raspberry Pi 3** (ARM) vía Docker.
+
+> **Grid-only**: la operativa real es un grid con **leverage 1** (sin leverage) en demo. Todo lo de ML/LightGBM pertenece a una fase anterior, **desactivada** (ver [Legado ML](#legado-ml-actividad-ml-desactivada)).
+
+---
+
+## Vista Rápida
+
+- **Servicios Docker**: `redis` + `api` (el grid corre **dentro** del `api`; no hay servicio `bot` separado)
+- **Objetivo**: **2-5% mensual** (realista) a 1×
+- **Estrategia**: grid sobre 3 pares, 6 niveles/par, rango 8%, spacing~3.2%, leverage 1, capital 90%, stop-loss 5%, poll 15s, ATR-adaptive off
+- **PnL real (demo)**: +2.49€ neto en ~13.5 días sobre 100€ demo (≈5% mensualizado en mercado volátil)
+- **Dashboard**: `http://<IP>:8000` · API REST + WS en tiempo real
+
+---
+
+## Índice
+
+- [Características](#características)
+- [Requisitos](#requisitos)
+- [Instalación](#instalación)
+  - [Docker (Recomendado)](#docker-recomendado)
+  - [Local (Desarrollo)](#local-desarrollo)
+- [Configuración](#configuración)
+- [Grid: qué controla cada variable](#grid-qué-controla-cada-variable)
+- [Dashboard / API / Endpoints](#dashboard--api--endpoints)
+- [Docker Development](#docker-development)
+- [Raspberry Pi](#raspberry-pi)
+- [Troubleshooting](#troubleshooting)
+- [Legado ML (actividad ML desactivada)](#legado-ml-actividad-ml-desactivada)
+
+---
 
 ## Características
 
-- **Trading automático** en Binance
-- **Modelo ML** LightGBM para señales de compra/venta
-- **Modo demo** para pruebas sin riesgo
-- **Gestión de riesgo** integrada (stop-loss, take-profit, límites de posición)
-- **Dashboard web** en tiempo real
-- **Notificaciones Telegram**
+- **Grid demo automático** en 3 pares (BTC/EUR, ETH/EUR, SOL/EUR)
+- **Modo demo** con balance simulado sin riesgo (PnL de papel, sin tocar cuenta real)
+- **Reconciliación de PnL**: el total del grid cuadra con el balance real del portfolio (la BD es la fuente de verdad)
+- **Snapshots regenerados** desde los trades reales (historial limpio, ~1/hora con throttle)
+- **Rebalance automático**: cuando el precio se desvía del centro >8%, el grid liquida y recentra
+- **Stop-loss** por par (5%) ante fuga fuera de rango
+- **Dashboard web** en tiempo real (Vue.js, sin build step)
+- **API REST + WebSocket** para el dashboard
 - **Docker** listo para Raspberry Pi 3
+
+---
 
 ## Requisitos
 
-- Python 3.11+ (incluido en Docker)
+- Docker y Docker Compose instalados
+- Raspberry Pi 3 con Raspberry Pi OS (Bullseye/Bookworm)
 - Redis (incluido en Docker)
-- Docker + Docker Compose
-- (Opcional) Git para clonar el repositorio
+
+---
 
 ## Instalación
 
-### Docker (Recomendado para Raspberry Pi)
+### Docker (Recomendado)
 
 ```bash
 # 1. Clonar repositorio
 git clone https://github.com/hoserpa/trader-ia-v2.git
 cd trader-ia-v2
 
-# 2. Copiar configuración
+# 2. Configurar variables de entorno
 cp .env.example .env
-nano .env  # Editar con tus valores
+nano .env
 
-# 3. Ejecutar servicios
-# NOTA: Si docker compose no está disponible, usar "docker-compose" (con guion)
+# 3. Construir y ejecutar todos los servicios
 docker compose up -d --build
 
 # 4. Verificar estado
 docker compose ps
-docker compose logs -f
 ```
 
 ### Local (Desarrollo)
@@ -51,270 +85,159 @@ pip install -r api/requirements.txt
 # Ejecutar Redis
 docker run -d -p 6379:6379 redis:7-alpine
 
-# Ejecutar bot
-cd bot && python main.py
-
-# Ejecutar API (en otra terminal)
-cd api && uvicorn main:app --reload
+# Ejecutar API (el grid arranca junto al api)
+cd api
+uvicorn main:app --host 0.0.0.0 --port 8000
 ```
+
+---
 
 ## Configuración
 
-Editar `.env` con tus valores:
+Crear `.env` en la raíz del proyecto:
 
 ```env
-# Modo: demo o real
+# Trading (grid en demo; sin ML)
 TRADING_MODE=demo
-
-# Pares a operar
 TRADING_PAIRS=BTC/EUR,ETH/EUR,SOL/EUR
-
-# Exchange (kraken, binance, coinbase, etc)
 EXCHANGE=kraken
 
-# Exchange API
-KRAKEN_API_KEY=tu_api_key
-KRAKEN_API_SECRET=tu_api_secret
+# Exchange API (solo rellena para modo real; demo usa demo_trader)
+KRAKEN_API_KEY=
+KRAKEN_API_SECRET=
 
-# Thresholds de señal (optimizado para el modelo entrenado)
-BUY_THRESHOLD=0.40
-SELL_THRESHOLD=0.40
+# Grid
+GRID_ENABLED=true
+GRID_PAIRS=BTC/EUR,ETH/EUR,SOL/EUR
+GRID_LEVERAGE=1            # sin leverage (realista, 2-5%/mes)
+GRID_LEVELS=6              # niveles por par (GRID_LEVELS, no GRID_LEVELS_PER_PAIR)
+GRID_RANGE_PCT=0.08        # rango total del grid (8%)
+GRID_CAPITAL_PCT=0.90      # % del balance en el grid
+# spacing derivado: range/levels ≈ 0.08/6 ≈ 1.33% ...
+GRID_REBALANCE_THRESHOLD=0.08   # desviación para rebalancear
+GRID_STOP_LOSS_PCT=0.05    # stop-loss por fuga de rango
+GRID_POLL_INTERVAL=15      # segundos entre checks
+GRID_ATR_ADAPTIVE=false    # adaptación por volatilidad (desactivada)
 
-# Contraseña API web
+# Database
+SQLITE_DB_PATH=/app/data/crypto_trader.db
+REDIS_HOST=redis
+REDIS_PORT=6379
+
+# API
+API_PORT=8000
 API_USERNAME=admin
 API_PASSWORD=changeme
 ```
 
-## Acceso al Dashboard
+---
 
-### URLs de acceso
+## Grid: qué controla cada variable
 
-| Entorno | URL |
-|---------|-----|
-| Local | `http://localhost:8000` |
-| Red local (IP) | `http://<TU_IP>:8000` |
-| Docker Host | `http://127.0.0.1:8000` |
+| Variable | Efecto |
+|----------|--------|
+| `GRID_PAIRS` | Pares a operar (capital repartido entre ellos) |
+| `GRID_LEVERAGE` | Multiplica el nocional por nivel. **1** = realista (2-5%/mes); >1 infla el demo y el drawdown (no recomendado en demo) |
+| `GRID_LEVELS` | Densidad de niveles; más niveles = más ciclos pero más fees por unidad de rango |
+| `GRID_RANGE_PCT` | Amplitud del rango alrededor del precio. Rango estrecho = grid más denso, se llena más rápido pero sale el precio con más frecuencia |
+| `GRID_SPACING_PCT` | Distancia entre niveles; el PnL por ciclo es el spread capturado menos 2×fee. **No fijar spacing menor que ~2×fee** o cada ciclo pierde |
+| `GRID_REBALANCE_THRESHOLD` | Si el precio se desvía del centro más de este %, recéntralo (liquida y abre niveles nuevos) |
+| `GRID_CAPITAL_PCT` | Fracción del balance asignada al grid (90%) |
+| `GRID_STOP_LOSS_PCT` | Si la fuga supera este %, cierra con pérdida en vez de rebalancear |
 
-### Obtener IP de la Raspberry Pi
+**Economía clave del grid**: cada ciclo lleno captura el spread entre niveles; el PnL neto por ciclo = spread − 2×fee. Con spacing 3.2% y nivel de ~5€, cada cierre rinde ~0.09-0.23€ netos. La frecuencia de ciclos la pone el mercado (volatilidad), no el bot; por eso el rango **% mensual no se "configura": lo limita cuánta volatilidad cruce el grid** y queda en 2-5%/mes a 1×.
 
-```bash
-# Linux/Raspberry Pi
-hostname -I | awk '{print $1}'
+---
 
-# Windows
-ipconfig | findstr /i "IPv4"
-```
-
-## Ejecución
-
-### Iniciar servicios
-
-```bash
-# Iniciar todos los servicios
-docker compose up -d --build
-
-# Ver logs en tiempo real
-docker compose logs -f
-
-# Ver logs de un servicio específico
-docker compose logs -f bot
-docker compose logs -f api
-docker compose logs -f redis
-```
-
-### Detener servicios
-
-```bash
-# Detener todos los servicios (preserva datos)
-docker compose down
-
-# Detener y eliminar volúmenes (LIMPIA TODO)
-docker compose down -v
-
-# Detener un servicio específico
-docker compose stop bot
-
-# Reiniciar un servicio específico
-docker compose restart bot
-```
-
-### Estado y debug
-
-```bash
-# Ver estado de contenedores
-docker compose ps
-
-# Ver recursos usados
-docker stats
-
-# Acceder a contenedor bash
-docker exec -it crypto_bot /bin/bash
-docker exec -it crypto_api /bin/bash
-docker exec -it crypto_redis redis-cli
-```
-
-### Raspberry Pi
-
-El proyecto está optimizado para Raspberry Pi 3 (ARM):
-
-```bash
-# En la Raspberry Pi
-docker compose up -d --build
-
-# Acceso desde otro dispositivo
-# http://<IP_RASPBERRY_PI>:8000
-```
-
-**Nota**: El directorio `./data` se monta automáticamente para persistencia de la base de datos SQLite.
-
-## Estructura del Proyecto
-
-```
-bot/
-├── main.py              # Punto de entrada
-├── config.py            # Configuración
-├── trading/
-│   ├── engine.py        # Motor de trading
-│   ├── risk_manager.py  # Gestión de riesgo
-│   ├── portfolio.py     # Portafolio
-│   ├── demo_trader.py   # Trading demo
-│   └── real_trader.py   # Trading real
-├── model/
-│   └── predictor.py     # Inferencia ML
-├── data/
-│   ├── collector.py     # Recolección de datos
-│   └── historical.py    # Datos históricos
-├── indicators/
-│   ├── technical.py     # Indicadores técnicos
-│   └── features.py      # Features para modelo
-├── database/            # Modelos y CRUD
-├── scheduler/           # Tareas programadas
-└── notifications/       # Telegram
-
-api/
-├── main.py              # FastAPI
-├── routers/             # Endpoints REST
-└── websocket/           # WebSocket en tiempo real
-
-frontend/
-├── index.html           # Dashboard
-├── css/style.css
-└── js/app.js
-
-training/
-├── train_model.py       # Entrenamiento
-├── evaluate_model.py    # Evaluación y backtest
-├── feature_engineering.py
-└── fetch_historical_data.py
-```
-
-## Modos de Operación
-
-| Modo | Descripción |
-|------|-------------|
-| `demo` | Simulación con dinero virtual |
-| `real` | Trading real con dinero |
-
-## API Endpoints
+## Dashboard / API / Endpoints
 
 | Endpoint | Descripción |
 |----------|-------------|
 | `GET /` | Dashboard web |
-| `GET /health` | Estado del sistema |
 | `GET /api/portfolio` | Estado del portafolio |
-| `GET /api/trades` | Historial de operaciones |
-| `GET /api/market` | Datos de mercado |
 | `GET /api/bot/status` | Estado del bot |
+| `GET /api/trades` | Historial de operaciones |
+| `GET /api/trades/stats` | Estadísticas de trading |
+| `GET /api/bot/grid` | Estado del grid por par |
 | `GET /api/logs` | Logs del sistema |
 | `WS /ws` | Actualizaciones en tiempo real |
 
-## Parámetros de Riesgo
+---
 
-- Máximo 2% por operación
-- Máximo 3 posiciones abiertas
-- Máximo 60% del portafolio en crypto
-- Stop-loss: 1.5x ATR
-- Take-profit: 3x ATR
-- Threshold BUY: 40% (configurable)
-- Threshold SELL: 40% (configurable)
+## Docker Development
 
-## Entrenamiento del Modelo
+### Services
 
-El modelo LightGBM debe entrenarse externamente (PC o Google Colab) y los archivos resultantes copiarse al directorio `bot/model/`.
+El `docker-compose.yml` define **2 servicios**:
 
-### Pipeline de Entrenamiento
+- `redis` - Almacenamiento de estado y caché
+- `api` - FastAPI backend **+ motor de grid** (el grid corre aquí, no hay servicio `bot` separado)
+
+### Comandos
 
 ```bash
-# 1. Instalar dependencias
-pip install -r training/requirements.txt
+# Todos los servicios
+docker compose up -d --build
 
-# 2. Descargar datos históricos (mínimo 90 días)
-python training/fetch_historical_data.py --pairs BTC/EUR,ETH/EUR --days 90
+# Ver logs
+docker compose logs -f
+docker compose logs -f api
 
-# 3. Generar features y etiquetas
-python training/feature_engineering.py
+# Estado
+docker compose ps
 
-# 4. Entrenar modelo
-python training/train_model.py
+# Reiniciar el api (y con ello el grid)
+docker compose restart api
 
-# 5. Evaluar (métricas, backtest)
-python training/evaluate_model.py --buy-threshold 0.40 --sell-threshold 0.40
+# Detener
+docker compose down
 ```
 
-### Métricas Mínimas (para producción)
+> **Nota**: como no hay servicio `bot`, reiniciar el `api` reinicia también el grid (restaura niveles e histórico desde Redis + BD).
 
-| Métrica | Mínimo |
-|---------|--------|
-| Precision BUY/SELL | ≥ 0.60 |
-| Sharpe Ratio | ≥ 1.0 |
-| Max Drawdown | ≤ 15% |
+---
 
-### Google Colab (Gratuito)
+## Raspberry Pi
 
-1. Sube los scripts de `training/` a Colab
-2. Ejecuta los pasos 1-5
-3. Descarga: `trained_model.pkl`, `scaler.pkl`, `model_metadata.json`
-4. Copia a la Raspberry Pi:
-   ```bash
-   scp *.pkl *.json pi@[IP]:~/trader-ia-v2/bot/model/
-   ```
+```bash
+# Verificar arquitectura ARM
+uname -m  # debe mostrar armv7l o aarch64
 
-### Archivos del Modelo
+# Raspberry Pi 3 (ARM32): puede requerir build-essential para dependencias nativas
+sudo apt install build-essential libffi-dev libssl-dev
+```
 
-Los archivos deben ubicarse en:
-- `bot/model/trained_model.pkl` - Modelo entrenado
-- `bot/model/scaler.pkl` - Normalizador RobustScaler
-- `bot/model/model_metadata.json` - Métricas y configuración
+El directorio `./data` se monta automáticamente para persistir la base de datos SQLite.
+
+---
 
 ## Troubleshooting
-
-### Problemas comunes
 
 ```bash
 # Redis no conecta
 docker compose logs redis
 docker compose restart redis
 
-# El bot no arranca
-docker compose logs bot
+# El grid no arranca (corre dentro del api)
+docker compose logs -f api
+docker compose restart api
 
-# Verificar puertos ocupados
-netstat -tuln | grep 8000
-
-# Limpiar y recreate
+# Limpiar y reconstruir
 docker compose down -v
 docker compose up -d --build
 ```
 
-### Logs
+---
 
-```bash
-# Todos los logs
-docker compose logs -f
+## Legado ML (actividad ML desactivada)
 
-# Solo errores
-docker compose logs -f | grep ERROR
-```
+El proyecto arrancó como un bot **LightGBM** con señales de compra/venta entrenadas en Colab. Esa ruta está **desactivada**: el grid corre sin modelo y la operativa real no usa ML. El código ML sigue existiendo en el repo pero **no se usa** en la operativa grid.
+
+- **Archivos legado (no usados en grid)**: `bot/model/`, `bot/trading/predictor.py` (LightGBM), `training/`, `bot/scheduler/` (ML), `Dockerfile` bot.
+- **Para reactivar (no recomendado)**: entrenar en `training/`, colocar `model/trained_model.pkl` y conectar el `TradingEngine`. No encender ML junto al grid sin validar antes en paper-trading.
+- `GRID_ATR_ADAPTIVE` es la única pieza de "adaptabilidad" vigente.
+
+---
 
 ## Licencia
 
