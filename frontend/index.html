@@ -206,10 +206,11 @@
     <h2>Historial</h2>
     <div class="table-wrapper">
       <table class="data-table">
-        <thead><tr><th>Fecha/Hora</th><th>Par</th><th>Tipo</th><th>Entrada</th><th>Salida</th><th>PnL</th><th>Comisiones</th></tr></thead>
+        <thead><tr><th>Apertura</th><th>Cierre</th><th>Par</th><th>Tipo</th><th>Entrada</th><th>Salida</th><th>PnL</th><th>Comisiones</th></tr></thead>
         <tbody>
           <tr v-for="t in trades" :key="t.id" :class="'row-' + tradeColor(t)">
             <td>{{ formatDate(t.entry_timestamp) }}</td>
+            <td>{{ formatDate(t.exit_timestamp) }}</td>
             <td>{{ t.pair }}</td>
             <td><span class="badge" :class="badgeClass(t)">{{ opSideLabel(t) }}</span></td>
             <td>{{ formatPrice(t.entry_price) }}€</td>
