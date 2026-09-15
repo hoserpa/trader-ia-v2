@@ -649,6 +649,8 @@ class GridStrategy:
         for level in state["levels"]:
             if level["status"] != "open":
                 continue
+            if not level.get("cycle_id"):
+                continue
             entry = level.get("entry_price", level["price"])
             amount = level["amount"]
             side = level["side"]

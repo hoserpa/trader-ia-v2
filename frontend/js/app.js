@@ -274,7 +274,7 @@ createApp({
 
     const formatPrice = (v) => v != null ? Number(v).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
     const formatDate = (ts) => ts ? new Date(ts).toLocaleString('es-ES') : '—';
-    const isBuy = (side) => side === 'buy' || side === 'buy_to_close';
+    const isBuy = (side) => (side || '').toLowerCase() === 'buy' || (side || '').toLowerCase() === 'buy_to_close';
     const tradeColor = (t) => {
       if (isBuy(t.side)) return 'buy';
       return 'sell';
