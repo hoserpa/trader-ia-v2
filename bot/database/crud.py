@@ -188,12 +188,13 @@ def get_operations(db: Session, limit: int = 50, offset: int = 0) -> list[dict]:
             continue
         items.sort(key=lambda x: x.timestamp)
         opening = items[0]
-        closing = next((x for x in items if x.pnl_eur is not None), None)
+        closed = [x for x in items if x.pnl_eur is not None]
+        closing = closed[-1] if closed else None
         side = opening.side
         total_fees = round(sum(x.fee_eur for x in items), 4)
         if closing:
             status = "closed"
-            pnl_eur = round(closing.pnl_eur, 4)
+            pnl_eur = round(sum(x.pnl_eur for x in closed), 4)
             exit_price = closing.price
             exit_fee = closing.fee_eur
             exit_ts = closing.timestamp

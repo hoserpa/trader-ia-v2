@@ -143,6 +143,7 @@ class GridStrategy:
             logger.info("Grid: estado recuperado desde Redis, manteniendo niveles e histórico")
 
         self._reconcile_with_portfolio()
+        await self._reconcile_pair_pnl()
         await self._restore_open_positions()
         self._running = True
         await self._save_global_state()
@@ -163,6 +164,34 @@ class GridStrategy:
         real_pnl = round(port.get("balance_eur", 0) - initial, 4)
         self._global_state["total_pnl_eur"] = real_pnl
         self._global_state["real_pnl_eur"] = real_pnl
+
+    async def _reconcile_pair_pnl(self):
+        """Sincroniza el PnL por par en Redis con la suma real de la BD."""
+        from database.init_db import SessionLocal
+        from sqlalchemy import func
+        from database.models import Trade
+
+        db = SessionLocal()
+        try:
+            for pair in config.grid.pairs:
+                pair_pnl = round(
+                    db.query(func.coalesce(func.sum(Trade.pnl_eur), 0.0))
+                    .filter(Trade.pair == pair, Trade.pnl_eur.isnot(None))
+                    .scalar(),
+                    4,
+                )
+                state = self._state.get(pair)
+                if not state:
+                    continue
+                state["pnl_eur"] = pair_pnl
+                total_capital_used = max(
+                    sum(l["value_eur"] for l in state.get("levels", []) if l["status"] == "open"),
+                    1,
+                )
+                state["pnl_pct"] = pair_pnl / total_capital_used * 100
+                await self._save_pair_state(pair)
+        finally:
+            db.close()
 
     async def _restore_open_positions(self):
         """Rehidrata en portfolio.positions las posiciones abiertas tras un reinicio.

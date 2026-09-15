@@ -2,6 +2,7 @@
 import asyncio
 import json
 import os
+import time
 from datetime import datetime, date, timezone
 
 
@@ -79,6 +80,8 @@ class TradingEngine:
         self._lock_heartbeat_task: asyncio.Task | None = None
         self._atr_cache: dict[str, float] = {}
         self._last_snapshot = 0
+        self._last_snapshot_time = 0.0
+        self._last_snapshot_value = 0.0
 
     async def _acquire_instance_lock(self) -> bool:
         import socket
@@ -306,9 +309,18 @@ class TradingEngine:
                 prices[pair] = price
 
         state = await self.portfolio.update_valuations(prices)
+        now = time.time()
+        value = state.get("total_value_eur", 0)
+        if now - self._last_snapshot_time < 3600 and abs(value - self._last_snapshot_value) < 0.01:
+            await self.redis.publish(
+                "bot:live_updates", _json_dumps({"type": "portfolio_update", "data": state})
+            )
+            return
 
         with SessionLocal() as db:
             save_portfolio_snapshot(db, state)
+        self._last_snapshot_time = now
+        self._last_snapshot_value = value
 
         await self.redis.publish(
             "bot:live_updates", _json_dumps({"type": "portfolio_update", "data": state})
