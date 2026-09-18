@@ -168,15 +168,20 @@ class GridStrategy:
     async def _reconcile_pair_pnl(self):
         """Sincroniza el PnL por par en Redis con la suma real de la BD."""
         from database.init_db import SessionLocal
-        from sqlalchemy import func
+        from sqlalchemy import case, func
         from database.models import Trade
 
         db = SessionLocal()
         try:
             for pair in config.grid.pairs:
                 pair_pnl = round(
-                    db.query(func.coalesce(func.sum(Trade.pnl_eur), 0.0))
-                    .filter(Trade.pair == pair, Trade.pnl_eur.isnot(None))
+                    db.query(func.coalesce(func.sum(
+                        case(
+                            (Trade.pnl_eur.isnot(None), Trade.pnl_eur),
+                            else_=-Trade.fee_eur,
+                        )
+                    ), 0.0))
+                    .filter(Trade.pair == pair)
                     .scalar(),
                     4,
                 )

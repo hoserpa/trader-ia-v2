@@ -152,26 +152,8 @@ def get_trades(db: Session, limit: int = 50, offset: int = 0) -> list[Trade]:
     )
 
 
-def get_operations(db: Session, limit: int = 50, offset: int = 0) -> list[dict]:
-    """Devuelve operaciones del grid agrupadas por ciclo (entrada + cierre).
-
-    Cada operacion agrupa la pierna de apertura y la de cierre que comparten
-    cycle_id. El cierre es cualquier pierna con pnl_eur (incluye ciclos de una
-    sola pierna liquidada por rebalance). Para trades sin cycle_id
-    (historicos), se agrupan por position_id o se devuelven como operacion
-    unica con status abierta.
-
-    Returns:
-        list de dicts: {
-            id, pair, entry_timestamp, entry_price, amount_crypto, entry_fee,
-            exit_timestamp, exit_price, exit_fee, total_fees, pnl_eur, status, mode
-        }
-    """
-    trades = (
-        db.query(Trade)
-        .order_by(Trade.timestamp.asc())
-        .all()
-    )
+def _group_cycle_keys(trades: list[Trade]) -> tuple[dict, list]:
+    """Agrupa las piernas por ciclo (cycle_id, position_id o id) sin perder orden."""
     groups: dict = {}
     order: list = []
     for t in trades:
@@ -180,50 +162,169 @@ def get_operations(db: Session, limit: int = 50, offset: int = 0) -> list[dict]:
             groups[key] = []
             order.append(key)
         groups[key].append(t)
+    return groups, order
 
-    ops = []
-    for key in reversed(order):
-        items = groups[key]
-        if not items:
+
+def _net_pnl(opening_side: str, entry: float, exit: float, qty: float, fee_open: float, fee_close: float) -> float:
+    """PnL neto de una ida y vuelta: diferencia de precio por cantidad menos
+    las comisiones atribuidas (apertura + cierre; en flips posteriores a la
+    primera ida y vuelta, fee_open = 0 para no contar dos veces la comision
+    intermedia del ciclo)."""
+    if opening_side.upper() == "SELL":
+        return (entry - exit) * qty - fee_open - fee_close
+    return (exit - entry) * qty - fee_open - fee_close
+
+
+def _derive_entry(side: str, fill_price: float, pnl_eur: float, fee_close: float, qty: float) -> float:
+    """Deriva el precio de entrada real del grid a partir del PnL almacenado.
+
+    El grid guarda en cada cierre: pnl = delta - fee_cierre.
+      SELL close: pnl = (fill - entry) * qty - fee  -> entry = fill - (pnl + fee) / qty
+      BUY close:  pnl = (entry - fill) * qty - fee  -> entry = fill + (pnl + fee) / qty
+    """
+    if qty <= 0:
+        return fill_price
+    if side.upper() == "SELL":
+        return fill_price - (pnl_eur + fee_close) / qty
+    return fill_price + (pnl_eur + fee_close) / qty
+
+
+def _build_round_trips(trades: list[Trade]) -> tuple[list[dict], list[dict]]:
+    """Reconstruye las operaciones reales (ida y vuelta) desde las piernas.
+
+    Un cycle_id puede agrupar piernas de VARIAS cadenas: el contra-nivel
+    creado en una liquidacion/rebalance hereda el cycle_id de su padre, y si
+    este ya operaba, los cierres de ambas cadenas aparecen en el mismo ciclo
+    con cantidades y entradas distintas. Encadenar cierres secuencialmente
+    (viejo enfoque) emparejaba cierres de cadenas distintas y fabricaba filas
+    irreales (p.ej. 'BUY 90 -> 84 con +N e' cuando 84 era una liquidacion de
+    otra cadena).
+
+    Aqui cada cierre se empareja de forma GLOBAL (sin mirar cycle_id) con la
+    apertura real: se deriva la entrada del cierre desde su PnL almacenado y
+    se busca en el pool de aperturas sin usar la del par y precio mas cercano
+    (tolerancia 0.5%). Ninguna apertura se empareja dos veces.
+
+    - Emparejado a una apertura: el PnL de la fila descuenta las dos comisiones
+      (apertura + cierre), asi la suma de filas == PnL neto del balance.
+    - Flip (sin apertura en el pool, entrada derivada ≈ precio de una pierna
+      anterior): se muestra la entrada de esa pierna exacta con fee_apertura = 0
+      (esa comision ya quedo en la fila de su propia cadena).
+    - Sin coincidencia: se muestra la entrada derivada con fee_apertura = 0.
+
+    Returns:
+        (closed_rows, open_rows): operaciones cerradas y aperturas sin cierre.
+    """
+    TOL = 0.005  # tolerancia 0.5% para emparejar precios
+    sorted_trades = sorted(trades, key=lambda t: t.timestamp)
+    opens_pool: list[list] = []  # [[trade, used], ...]
+    fill_history: list[Trade] = []
+    closed_rows: list[dict] = []
+    open_rows: list[dict] = []
+
+    for t in sorted_trades:
+        if t.pnl_eur is None:
+            opens_pool.append([t, False])
+            fill_history.append(t)
             continue
-        items.sort(key=lambda x: x.timestamp)
-        opening = items[0]
-        closed = [x for x in items if x.pnl_eur is not None]
-        closing = closed[-1] if closed else None
-        side = opening.side
-        total_fees = round(sum(x.fee_eur for x in items), 4)
-        if closing:
-            status = "closed"
-            pnl_eur = round(sum(x.pnl_eur for x in closed), 4)
-            exit_price = closing.price
-            exit_fee = closing.fee_eur
-            exit_ts = closing.timestamp
+
+        derived = _derive_entry(t.side, t.price, t.pnl_eur, t.fee_eur, t.amount_crypto)
+        best_idx = -1
+        best_diff = TOL
+        for idx, (op, used) in enumerate(opens_pool):
+            if used or t.pair != op.pair or t.side.upper() == op.side.upper():
+                continue
+            diff = abs(derived - op.price) / max(op.price, 1e-8)
+            if diff < best_diff:
+                best_diff = diff
+                best_idx = idx
+
+        if best_idx >= 0:
+            op = opens_pool[best_idx][0]
+            opens_pool[best_idx][1] = True
+            entry = op.price
+            entry_fee = op.fee_eur
+            entry_ts = op.timestamp
         else:
-            status = "open"
-            pnl_eur = None
-            exit_price = None
-            exit_fee = 0.0
-            exit_ts = None
-        ops.append({
-            "id": key,
-            "pair": opening.pair,
-            "side": side,
-            "status": status,
-            "mode": opening.mode,
-            "amount_crypto": round(opening.amount_crypto, 8),
-            "entry_price": round(opening.price, 8),
-            "entry_fee": round(opening.fee_eur, 4),
-            "exit_price": round(exit_price, 8) if exit_price is not None else None,
-            "exit_fee": round(exit_fee, 4),
-            "total_fees": total_fees,
-            "pnl_eur": pnl_eur,
-            "amount_eur_entry": round(opening.amount_eur, 4),
-            "entry_timestamp": opening.timestamp.isoformat() + "Z",
-            "exit_timestamp": exit_ts.isoformat() + "Z" if exit_ts else None,
+            # Flip o cadena sin apertura en el pool: snap a la pierna previa cuyo
+            # precio MEJOR coincida con la entrada derivada (el grid usa como
+            # entry_price de un nivel el fill_price de su padre, asi que la entrada
+            # real SIEMPRE es el precio exacto de alguna pierna ya registrada).
+            snapped = None
+            best_can = TOL
+            for prev in fill_history:
+                diff = abs(derived - prev.price) / max(prev.price, 1e-8)
+                if diff <= best_can:
+                    best_can = diff
+                    snapped = prev
+            entry = snapped.price if snapped is not None else derived
+            entry_fee = 0.0
+            entry_ts = snapped.timestamp if snapped is not None else t.timestamp
+
+        row_side = "SELL" if t.side.upper() == "BUY" else "BUY"
+        pnl = round(_net_pnl(row_side, entry, t.price, t.amount_crypto, entry_fee, t.fee_eur), 4)
+        closed_rows.append({
+            "id": t.cycle_id or f"id_{t.id}",
+            "pair": t.pair,
+            "side": row_side,
+            "status": "closed",
+            "mode": t.mode,
+            "amount_crypto": round(t.amount_crypto, 8),
+            "entry_price": round(entry, 8),
+            "entry_fee": round(entry_fee, 4),
+            "exit_price": round(t.price, 8),
+            "exit_fee": round(t.fee_eur, 4),
+            "total_fees": round(entry_fee + t.fee_eur, 4),
+            "pnl_eur": pnl,
+            "amount_eur_entry": round(entry * t.amount_crypto, 4),
+            "entry_timestamp": entry_ts.isoformat() + "Z",
+            "exit_timestamp": t.timestamp.isoformat() + "Z",
         })
-        if len(ops) >= limit:
-            break
-    return ops[offset:]
+        fill_history.append(t)
+
+    for op, used in opens_pool:
+        if not used:
+            open_rows.append({
+                "id": op.cycle_id or f"id_{op.id}",
+                "pair": op.pair,
+                "side": op.side,
+                "status": "open",
+                "mode": op.mode,
+                "amount_crypto": round(op.amount_crypto, 8),
+                "entry_price": round(op.price, 8),
+                "entry_fee": round(op.fee_eur, 4),
+                "exit_price": None,
+                "exit_fee": 0.0,
+                "total_fees": round(op.fee_eur, 4),
+                "pnl_eur": None,
+                "amount_eur_entry": round(op.amount_eur, 4),
+                "entry_timestamp": op.timestamp.isoformat() + "Z",
+                "exit_timestamp": None,
+            })
+
+    return closed_rows, open_rows
+
+
+def get_operations(db: Session, limit: int = 50, offset: int = 0) -> list[dict]:
+    """Devuelve las operaciones del grid: una fila por ida y vuelta REAL.
+
+    Cada cierre se empareja con su apertura (incluye liquidaciones por
+    rebalance y stop-loss). El PnL de cada fila es neto de las dos comisiones
+    del ciclo y cuadra con el balance. Los ciclos abiertos (sin cierre) se
+    devuelven como fila abierta con su inversion.
+    """
+    trades = (
+        db.query(Trade)
+        .order_by(Trade.timestamp.asc())
+        .all()
+    )
+    closed_rows, open_rows = _build_round_trips(trades)
+    rows = sorted(
+        closed_rows + open_rows,
+        key=lambda r: r["entry_timestamp"],
+        reverse=True,
+    )
+    return rows[offset:offset + limit]
 
 
 def get_recent_operations(db: Session, limit: int = 8) -> list[dict]:
@@ -253,11 +354,12 @@ def get_recent_decisions(db: Session, limit: int = 50) -> list[ModelDecision]:
 
 
 def get_stats_summary(db: Session) -> dict:
-    """Estadisticas derivadas de los trades del grid en la tabla trades.
+    """Estadisticas derivadas de las operaciones reales del grid.
 
-    El grid escribe pierna a pierna (apertura sin pnl, cierres con pnl). Las
-    metricas se calculan sobre TODOS los cierres (piernas con pnl_eur), no solo
-    el primero de cada ciclo, para no subcontar ciclos con varios rellenos.
+    El PnL total se computa DIRECTAMENTE desde las piernas (suma de pnl de
+    cierres menos fees de aperturas), por lo que cuadra SIEMPRE con el balance
+    (100 + total_pnl_eur = balance real) independiente del emparejamiento. Las
+    comisiones totales incluyen todas las piernas (aperturas y cierres).
     """
     today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     today_errors = db.query(func.count(SystemLog.id)).filter(
@@ -266,40 +368,40 @@ def get_stats_summary(db: Session) -> dict:
     ).scalar() or 0
 
     trades = db.query(Trade).order_by(Trade.timestamp.asc()).all()
+    _, order = _group_cycle_keys(trades)
+    closed_rows, open_rows = _build_round_trips(trades)
+    opens = [x for x in trades if x.pnl_eur is None]
+    closes = [x for x in trades if x.pnl_eur is not None]
 
-    groups: dict = {}
-    order: list = []
-    for t in trades:
-        key = t.cycle_id or (f"pos_{t.position_id}" if t.position_id else f"id_{t.id}")
-        if key not in groups:
-            groups[key] = []
-            order.append(key)
-        groups[key].append(t)
-
-    pnls = []
+    pnls = [r["pnl_eur"] for r in closed_rows]
     pnl_pcts = []
-    total_fees = 0.0
-    today_pnls = []
-    for key in order:
-        items = groups[key]
-        items.sort(key=lambda x: x.timestamp)
-        total_fees += round(sum(x.fee_eur for x in items), 4)
-        for x in items:
-            if x.pnl_eur is None:
-                continue
-            pnls.append(x.pnl_eur)
-            notional = round(x.amount_crypto * x.price, 4)
-            pnl_pcts.append(x.pnl_eur / notional * 100 if notional else 0.0)
-            if x.timestamp >= today:
-                today_pnls.append(x.pnl_eur)
+    for r in closed_rows:
+        notional = round(r["amount_crypto"] * r["entry_price"], 4)
+        pnl_pcts.append(r["pnl_eur"] / notional * 100 if notional else 0.0)
 
-    open_ops = sum(1 for k in order if all(x.pnl_eur is None for x in groups[k]))
+    today_pnls = []
+    for r in closed_rows:
+        ts = r["exit_timestamp"]
+        if not ts:
+            continue
+        try:
+            dt = datetime.fromisoformat(ts.replace("Z", "+00:00")).replace(tzinfo=None)
+        except (TypeError, ValueError):
+            continue
+        if dt >= today:
+            today_pnls.append(r["pnl_eur"])
+
+    total_fees = round(sum(x.fee_eur for x in trades), 4)
+    open_ops = len(open_rows)
     total_ops = len(order)
     total_trades = len(trades)
     wins = sum(1 for p in pnls if p > 0)
     losses = sum(1 for p in pnls if p < 0)
     flat = sum(1 for p in pnls if p == 0)
-    total_pnl = round(sum(pnls), 4)
+    # PnL neto real: cada cierre acredita (delta - fee_cierre) y cada apertura
+    # resta su fee. Cuadra SIEMPRE con el balance (100 + total_pnl = balance),
+    # independiente del emparejamiento de filas de _build_round_trips.
+    total_pnl = round(sum(c.pnl_eur for c in closes) - sum(o.fee_eur for o in opens), 4)
     win_rate = (wins / len(pnls) * 100) if pnls else 0
     avg_pnl_pct = round(sum(pnl_pcts) / len(pnl_pcts), 2) if pnl_pcts else 0.0
 
@@ -313,8 +415,8 @@ def get_stats_summary(db: Session) -> dict:
     return {
         "total_trades": total_trades,
         "total_operations": total_ops,
-        "closed_positions": len(pnls),
-        "closed_operations": len(pnls),
+        "closed_positions": len(closed_rows),
+        "closed_operations": len(closed_rows),
         "open_operations": open_ops,
         "wins_total": wins,
         "losses_total": losses,
@@ -323,7 +425,7 @@ def get_stats_summary(db: Session) -> dict:
         "avg_pnl_eur": round(total_pnl / len(pnls), 4) if pnls else 0,
         "avg_pnl_pct": avg_pnl_pct,
         "total_pnl_eur": total_pnl,
-        "total_fees_eur": round(total_fees, 4),
+        "total_fees_eur": total_fees,
         "trades_today": len(today_pnls),
         "today_operations": len(today_pnls),
         "today_closed": len(today_pnls),
