@@ -382,6 +382,15 @@ class GridStrategy:
             if atr and atr > 0:
                 range_amount = atr * grid_cfg.atr_range_mult
                 spacing = atr / grid_cfg.atr_spacing_divisor
+                min_spacing = 2 * current_price * max(
+                    config.exchange.maker_fee, config.exchange.taker_fee
+                )
+                if spacing < min_spacing:
+                    logger.warning(
+                        f"Grid {pair}: spacing ATR {spacing:.4f} < 2x fee, "
+                        f"subido a suelo {min_spacing:.4f}"
+                    )
+                    spacing = min_spacing
                 lower = current_price - range_amount
                 upper = current_price + range_amount
                 n_levels = max(
