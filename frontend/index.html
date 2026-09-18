@@ -78,7 +78,10 @@
     </div>
     <div class="card">
       <div class="card-label">Balance libre</div>
-      <div class="card-value">{{ formatPrice(portfolio.balance_eur) }}€</div>
+      <div class="card-value">{{ formatPrice(portfolio.free_balance_eur ?? portfolio.balance_eur) }}€</div>
+      <div class="card-sub" v-if="portfolio.invested_open_eur">
+        {{ formatPrice(portfolio.invested_open_eur) }}€ en posiciones
+      </div>
     </div>
     <div class="card">
       <div class="card-label">Posiciones abiertas</div>
@@ -185,13 +188,15 @@
     <h2>Posiciones abiertas</h2>
     <div class="table-wrapper">
       <table class="data-table">
-        <thead><tr><th>Ciclo</th><th>Par</th><th>Tipo</th><th>Entrada</th><th>Actual</th><th>PnL</th><th>SL</th><th>TP</th></tr></thead>
+        <thead><tr><th>Ciclo</th><th>Par</th><th>Tipo</th><th>Entrada</th><th>Cantidad</th><th>Invertido</th><th>Actual</th><th>PnL</th><th>SL</th><th>TP</th></tr></thead>
         <tbody>
           <tr v-for="(pos, pair) in portfolio.positions" :key="pair">
             <td class="mono">{{ pos.cycle_id?.slice(0, 8) }}</td>
             <td>{{ pos.pair }}</td>
             <td><span class="badge" :class="(pos.position_type || 'long') === 'long' ? 'badge-buy' : 'badge-sell'">{{ (pos.position_type || 'long').toUpperCase() }}</span></td>
             <td>{{ formatPrice(pos.entry_price) }}€</td>
+            <td>{{ formatAmount(pos.amount_crypto) }} <span class="mono" style="color:#8d949e">{{ pos.pair.split('/')[0] }}</span></td>
+            <td>{{ formatPrice(pos.amount_eur_invested) }}€</td>
             <td>{{ formatPrice(pos.current_price) }}€</td>
             <td :class="pos.pnl_eur >= 0 ? 'positive' : 'negative'">{{ pos.pnl_eur >= 0 ? '+' : '' }}{{ formatPrice(pos.pnl_eur) }}€ ({{ pos.pnl_pct?.toFixed(1) }}%)</td>
             <td class="negative">{{ pos.stop_loss_price != null ? formatPrice(pos.stop_loss_price) + '€' : '—' }}</td>
@@ -206,7 +211,7 @@
     <h2>Historial</h2>
     <div class="table-wrapper">
       <table class="data-table">
-        <thead><tr><th>Apertura</th><th>Cierre</th><th>Par</th><th>Tipo</th><th>Entrada</th><th>Salida</th><th>PnL</th><th>Comisiones</th></tr></thead>
+        <thead><tr><th>Apertura</th><th>Cierre</th><th>Par</th><th>Tipo</th><th>Entrada</th><th>Cantidad</th><th>Invertido</th><th>Salida</th><th>PnL</th><th>Comisiones</th></tr></thead>
         <tbody>
           <tr v-for="t in trades" :key="t.id" :class="'row-' + tradeColor(t)">
             <td>{{ formatDate(t.entry_timestamp) }}</td>
@@ -214,6 +219,8 @@
             <td>{{ t.pair }}</td>
             <td><span class="badge" :class="badgeClass(t)">{{ opSideLabel(t) }}</span></td>
             <td>{{ formatPrice(t.entry_price) }}€</td>
+            <td>{{ formatAmount(t.amount_crypto) }} <span class="mono" style="color:#8d949e">{{ t.pair.split('/')[0] }}</span></td>
+            <td>{{ formatPrice(t.amount_eur_entry) }}€</td>
             <td>{{ t.exit_price != null ? formatPrice(t.exit_price) + '€' : '—' }}</td>
             <td :class="pnlClass(t)">{{ formatPnl(t.pnl_eur) }}</td>
             <td>{{ formatPrice(t.total_fees) }}€</td>

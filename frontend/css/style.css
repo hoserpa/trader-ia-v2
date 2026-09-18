@@ -78,6 +78,8 @@ h2 { font-size: 1rem; font-weight: 600; margin-bottom: 12px; width: 100%; }
 .data-table tr.row-buy td { color: #fbbf24; }
 .data-table tr.row-win td { color: #4ade80; }
 .data-table tr.row-loss td { color: #f87171; }
+.data-table tr.row-open td { color: #8d949e; }
+.data-table tr.row-flat td { color: #8d949e; }
 
 .log-container { background: #1c1f26; border-radius: 12px; padding: 12px; max-height: 200px; overflow-y: auto; font-size: 0.75rem; }
 .log-empty { color: #6b7280; text-align: center; padding: 20px; }

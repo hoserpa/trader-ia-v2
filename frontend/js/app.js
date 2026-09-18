@@ -273,11 +273,14 @@ createApp({
     };
 
     const formatPrice = (v) => v != null ? Number(v).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
+    const formatAmount = (v) => v != null ? Number(v).toLocaleString('es-ES', { maximumFractionDigits: 8 }) : '—';
     const formatDate = (ts) => ts ? new Date(ts).toLocaleString('es-ES') : '—';
     const isBuy = (side) => (side || '').toLowerCase() === 'buy' || (side || '').toLowerCase() === 'buy_to_close';
     const tradeColor = (t) => {
-      if (isBuy(t.side)) return 'buy';
-      return 'sell';
+      if (t.status === 'open' || t.pnl_eur == null) return 'open';
+      if (t.pnl_eur > 0) return 'win';
+      if (t.pnl_eur < 0) return 'loss';
+      return 'flat';
     };
     const opSideLabel = (t) => {
       if (t.status === 'open') return 'ABIERTA';
@@ -343,7 +346,7 @@ createApp({
       portfolio, botStatus, botConfig, prices, trades, systemLogs,
       latestSignals, stats, gridState, historyDays, logContainer, openPositions,
       formatPrice, formatDate, modeClass, statusClass, statusTextClass, signalClass,
-      tradeColor, badgeClass, pnlClass, formatPnl, opSideLabel,
+      tradeColor, badgeClass, pnlClass, formatPnl, opSideLabel, formatAmount,
       loadPortfolioHistory, resetPortfolio,
       chartPairs, chartPair, chartTimeframes, chartTimeframe, chartDays,
       selectChartPair, selectChartTimeframe, selectChartRange,
