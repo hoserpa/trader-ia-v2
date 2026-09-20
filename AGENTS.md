@@ -89,12 +89,15 @@ EXCHANGE=kraken
 GRID_ENABLED=true
 GRID_PAIRS=BTC/EUR,ETH/EUR,SOL/EUR
 GRID_LEVERAGE=1          # realista: 1× (2-5%/mes)
-GRID_LEVELS=6            # niveles por par
-GRID_RANGE_PCT=0.08      # rango total 8% (spacing derivado ≈ range/levels >2×fee)
+GRID_LEVELS=15           # niveles por par (mas niveles -> mas trades)
+GRID_MIN_LOT_VALUE_EUR=2 # capital 100% desplegado (15×2=30€/par)
+GRID_RANGE_PCT=0.08      # rango total 8% (spacing ≈ rango/(n-1): 15 niveleñes → 1.14% > 2×fee 0.52%)
 GRID_CAPITAL_PCT=0.90
 GRID_REBALANCE_THRESHOLD=0.08
 GRID_STOP_LOSS_PCT=0.05
 GRID_POLL_INTERVAL=15
+# ATR-adaptive DESACTIVADO: medido en 15m (BTC 0.18%, ETH 0.23%, SOL 0.27%)
+# colapsa el spacing al suelo 2×fee (0.52%) -> margen ~0. El grid FIJO lo evita.
 GRID_ATR_ADAPTIVE=false
 
 # Database
@@ -156,7 +159,7 @@ docker compose ps
 ## Grid Strategy (referencia rápida)
 
 - **Engine**: `bot/trading/engine.py` - bucle de monitoreo y coordinación; reconcilia el PnL total con el balance real del portfolio (BD como fuente de verdad), regenera snapshots con throttle (1/hora o cambio >0.01), restaura posiciones abiertas al reiniciar.
-- **Grid**: `bot/strategies/grid_strategy.py` - 3 pares, 6 niveles/par, rango 8%, spacing ~3.2%, leverage 1, capital 90%, stop-loss 5%, poll 15s, ATR-adaptive desactivado.
+- **Grid**: `bot/strategies/grid_strategy.py` - 3 pares, 15 niveles/par, rango 8%, spacing ~1.14% (margen 0.6pp > suelo 2×fee 0.52%), leverage 1, capital 90%, min-lot 2€, stop-loss 5%, poll 15s, ATR-adaptive desactivado.
 - **Demo**: `bot/trading/demo_trader.py` - sin ejecución real; el PnL se acredita al balance simulado.
 - **Clave grid**: cada ciclo lleno captura el spread entre niveles; el PnL por ciclo = spread − 2×fee. No es rentable fijar spacing menor que ~2×fee.
 - Cuando el precio se desvía del centro >8% (rebalance threshold), el grid **liquida posiciones y recentra** (rebalance). Si la fuga supera el stop-loss, cierra con pérdida.

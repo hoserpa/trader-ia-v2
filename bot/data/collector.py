@@ -31,6 +31,7 @@ class DataCollector:
         self.exchange = self._build_exchange()
         self._futures_exchange = None
         self._running = False
+        self._ws_ok = False
         self._reconnect_delay = 5
         self._max_reconnect_delay = 300
 
@@ -83,6 +84,7 @@ class DataCollector:
 
         await asyncio.gather(
             self._run_kraken_ws(),
+            self._run_polling_loop(),
             self._run_ohlcv_loop(),
         )
 
@@ -99,7 +101,6 @@ class DataCollector:
         Si falla, hace fallback a polling REST.
         """
         ws_failures = 0
-        MAX_WS_RETRIES = 5
         delay = self._reconnect_delay
 
         while self._running:
@@ -115,6 +116,7 @@ class DataCollector:
                         "subscription": {"name": "ticker"},
                     }
                     await ws.send(json.dumps(subscribe))
+                    self._ws_ok = True
                     logger.info(f"Kraken WS conectado, suscrito a {kraken_pairs}")
 
                     async def _heartbeat():
@@ -154,8 +156,10 @@ class DataCollector:
                                     logger.info(f"Kraken WS: suscrito a {data.get('pair')} ({data.get('subscription', {}).get('name')})")
                     except websockets.ConnectionClosed:
                         logger.warning("Kraken WS: conexión cerrada, reconectando...")
+                        self._ws_ok = False
                     except Exception as e:
                         logger.warning(f"Kraken WS: error en mensaje: {e}")
+                        self._ws_ok = False
                     finally:
                         hb_task.cancel()
                         try:
@@ -165,40 +169,54 @@ class DataCollector:
 
             except Exception as e:
                 ws_failures += 1
-                logger.warning(f"Kraken WS error ({ws_failures}/{MAX_WS_RETRIES}): {e}. Reconectando en {delay}s...")
+                logger.warning(f"Kraken WS error ({ws_failures}): {e}. Reconectando en {delay}s...")
+                self._ws_ok = False
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, self._max_reconnect_delay)
 
-            if ws_failures >= MAX_WS_RETRIES and self._running:
-                logger.warning("Kraken WS: máximo de reintentos, cambiando a polling REST")
-                await self._run_polling_loop()
-                break
-
     async def _run_polling_loop(self) -> None:
-        """Fallback: consulta precios por REST cada 30s."""
+        """Fallo de respaldo de precios por REST mientras el WS esté caído.
+
+        Corre siempre pero solo consulta cuando el WS no está activo. Con
+        backoff exponencial ante fallos consecutivos (techo 5 min) para no
+        martillar un endpoint caído ni sobrecargar la Pi durante una caída.
+        """
         poll_interval = 30
+        max_delay = 300
+        consecutive_failures = 0
+
         while self._running:
-            try:
-                for pair in config.trading.pairs:
-                    try:
-                        symbol = config.trading.get_symbol(pair)
-                        ticker = await self.exchange.fetch_ticker(symbol)
-                        price = ticker.get("last")
-                        if price:
-                            await self.redis.set(
-                                self.REDIS_PRICE_KEY.format(pair=pair),
-                                str(price),
-                                ex=60,
-                            )
-                            await self.redis.publish(
-                                "price_update",
-                                json.dumps({"pair": pair, "price": price, "timestamp": datetime.utcnow().isoformat() + "Z"}),
-                            )
-                    except Exception as e:
-                        logger.warning(f"Error consultando precio {pair}: {e}")
-            except Exception as e:
-                logger.error(f"Error en polling loop: {e}")
-            await asyncio.sleep(poll_interval)
+            if self._ws_ok:
+                await asyncio.sleep(poll_interval)
+                continue
+
+            round_ok = True
+            for pair in config.trading.pairs:
+                try:
+                    symbol = config.trading.get_symbol(pair)
+                    ticker = await self.exchange.fetch_ticker(symbol)
+                    price = ticker.get("last")
+                    if price:
+                        await self.redis.set(
+                            self.REDIS_PRICE_KEY.format(pair=pair),
+                            str(price),
+                            ex=60,
+                        )
+                        await self.redis.publish(
+                            "price_update",
+                            json.dumps({"pair": pair, "price": price, "timestamp": datetime.utcnow().isoformat() + "Z"}),
+                        )
+                except Exception as e:
+                    round_ok = False
+                    logger.warning(f"Error consultando precio {pair}: {e}")
+
+            if round_ok:
+                consecutive_failures = 0
+                await asyncio.sleep(poll_interval)
+            else:
+                consecutive_failures += 1
+                delay = min(poll_interval * (2 ** (consecutive_failures - 1)), max_delay)
+                await asyncio.sleep(delay)
 
     async def stop(self) -> None:
         self._running = False
