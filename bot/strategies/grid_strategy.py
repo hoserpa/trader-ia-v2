@@ -505,7 +505,7 @@ class GridStrategy:
         spacing = self._state[pair]["spacing"]
         entry_price = level.get("entry_price", level["price"])
         amount = level["amount"]
-        fee_rate = config.exchange.maker_fee
+        fee_rate = self.broker.fee_rate if self.broker else config.exchange.maker_fee
         fee_eur = fill_price * amount * fee_rate
         level["fee_eur"] = fee_eur
         pnl = 0.0
@@ -686,7 +686,7 @@ class GridStrategy:
         orden (el bug que dejaba shorts/longs sin cerrar ni reconciliar).
         """
         state = self._state[pair]
-        fee_rate = config.exchange.maker_fee
+        fee_rate = self.broker.fee_rate if self.broker else config.exchange.maker_fee
         liquidated = []
 
         for level in state["levels"]:

@@ -50,6 +50,15 @@ class ExecutionBroker:
         self.mode = "base"
         self.margin_supported: dict = {}
 
+    @property
+    def fee_rate(self) -> float:
+        """Comisión por pierna que aplica el broker a cada fill del grid.
+
+        Lectura dinámica de config para respetar overrides en caliente
+        (config_service). Demo simula con maker; real usa taker (conservador:
+        las órdenes del grid no garantizan fills maker)."""
+        return config.exchange.maker_fee
+
     # -- Cursores -----------------------------------------------------------
     def has_short_support(self, pair: str) -> bool:
         """Devuelve si el par puede abrir shorts (con margen real).
@@ -98,6 +107,10 @@ class RealBroker(ExecutionBroker):
         super().__init__(portfolio, risk)
         self.mode = "real"
         self.exchange = exchange
+
+    @property
+    def fee_rate(self) -> float:
+        return config.exchange.taker_fee
 
     async def close(self) -> None:
         try:
