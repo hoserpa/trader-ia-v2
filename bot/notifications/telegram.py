@@ -1,8 +1,27 @@
 """Notificaciones via Telegram Bot API."""
+import asyncio
 from datetime import datetime, timezone
+
 import httpx
 from loguru import logger
+from zoneinfo import ZoneInfo
+
 from config import config
+
+_LOCAL_TZ = ZoneInfo("Europe/Madrid")
+
+
+def _to_local_hour(ts: str) -> str:
+    """Convierte un timestamp ISO (UTC) a hora local Europe/Madrid."""
+    if not ts:
+        return ""
+    try:
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(_LOCAL_TZ).strftime("%H:%M")
+    except Exception:
+        return ""
 
 
 def _fmt_price(price: float) -> str:
@@ -58,9 +77,9 @@ class TelegramNotifier:
         self._warning_cooldown = 300
         self._error_cooldown = 300
 
-    async def _send(self, text: str, priority: str = "normal", warn_key: str = None) -> None:
+    async def _send(self, text: str, priority: str = "normal", warn_key: str = None) -> bool:
         if not self.enabled or not self.token:
-            return
+            return False
 
         cooldown = {"warning": self._warning_cooldown, "error": self._error_cooldown}.get(priority, 0)
         if cooldown > 0:
@@ -68,19 +87,35 @@ class TelegramNotifier:
             key = f"{priority}:{category}"
             now = __import__("time").time()
             if key in self._last_send_time and now - self._last_send_time[key] < cooldown:
-                return
+                return False
             self._last_send_time[key] = now
 
         url = self.BASE_URL.format(token=self.token)
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                await client.post(url, json={
-                    "chat_id": self.chat_id,
-                    "text": text,
-                    "parse_mode": "Markdown",
-                })
-        except Exception as e:
-            logger.warning(f"Error enviando notificación Telegram: {e}")
+        last_status = None
+        for attempt in range(3):
+            payload = {"chat_id": self.chat_id, "text": text}
+            if attempt == 0:
+                payload["parse_mode"] = "Markdown"
+            try:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    resp = await client.post(url, json=payload)
+                last_status = resp.status_code
+                if resp.status_code == 200:
+                    return True
+                if resp.status_code == 400 and attempt == 0:
+                    logger.warning(f"Telegram 400 (¿markdown?) {text[:60]!r}: reintento sin parse_mode")
+                    continue
+                if resp.status_code in (400, 401, 403, 404):
+                    logger.warning(f"Telegram {resp.status_code}: {text[:60]!r} (no reintenta)")
+                    return False
+                logger.warning(f"Telegram {resp.status_code}: reintentando {attempt + 1}/2…")
+            except Exception as e:
+                logger.warning(f"Telegram error de red: {e} (reintentando {attempt + 1}/2)")
+            if attempt < 2:
+                await asyncio.sleep([1, 5][attempt])
+
+        logger.warning(f"Telegram: mensaje descartado tras 3 intentos (último status {last_status})")
+        return False
 
     async def notify_bot_started(self) -> None:
         mode = "DEMO" if config.trading.is_demo() else "REAL"
@@ -117,9 +152,9 @@ class TelegramNotifier:
         text = f"{emoji} {label} {pnl_eur:+.2f}€ en {pair} · {duration} · Efectivo: {balance:.2f}€"
         await self._send(text)
 
-    async def notify_error(self, error: str) -> None:
+    async def notify_error(self, error: str, warn_key: str = None) -> None:
         text = f"🔴 *ERROR* `{error[:300]}`"
-        await self._send(text, priority="error")
+        await self._send(text, priority="error", warn_key=warn_key)
 
     async def notify_warning(self, message: str, warn_key: str = None) -> None:
         text = f"⚠️ *AVISO* {message}"
@@ -156,7 +191,7 @@ class TelegramNotifier:
         status = op.get("status", "open")
         side_label = "ABIERTA" if status == "open" else ("LARGO" if op.get("side") == "buy" else "CORTO")
         ts = op.get("entry_timestamp") or ""
-        hora = ts[11:16] if len(ts) >= 16 else ""
+        hora = _to_local_hour(ts)
         entry = op.get("entry_price")
         exit_p = op.get("exit_price")
         pnl = op.get("pnl_eur")
@@ -181,7 +216,7 @@ class TelegramNotifier:
             f"Entrada {entry_s} · Salida {exit_s} · PnL {pnl_s} · Com. {fees:.2f}€"
         )
 
-    async def send_daily_summary(self, portfolio: dict, stats: dict, grid: dict | None = None, operations: list | None = None) -> None:
+    async def send_daily_summary(self, portfolio: dict, stats: dict, grid: dict | None = None, operations: list | None = None, floating: float = 0.0) -> bool:
         mode = "DEMO" if config.trading.is_demo() else "REAL"
         pnl = portfolio.get("total_pnl_eur", 0)
         pnl_pct = portfolio.get("total_pnl_pct", 0)
@@ -192,7 +227,6 @@ class TelegramNotifier:
         win_rate = stats.get("win_rate", 0)
         if win_rate and win_rate <= 1:
             win_rate *= 100
-        today = stats.get("today_operations", stats.get("trades_today", 0))
         wins = stats.get("wins_today", 0)
         losses = stats.get("losses_today", 0)
         today_closed = stats.get("today_closed", 0)
@@ -200,9 +234,11 @@ class TelegramNotifier:
 
         text = (
             f"📊 *Resumen* `{mode}` · {val:.2f}€ · {pnl_emoji} PnL {pnl:+.2f}€ ({pnl_pct:+.2f}%)\n"
-            f"Hoy {today} ops ({wins}✅ / {losses}❌ de {today_closed} cerradas) · "
-            f"WR {win_rate:.0f}% · {open_pos} abiertas · Errores {errors}"
+            f"Hoy {today_closed} cerradas ({wins}✅ / {losses}❌) · WR {win_rate:.0f}% · "
+            f"{open_pos} abiertas · Errores {errors}"
         )
+        if floating:
+            text += f"\nFlotante {floating:+.2f}€ → Total MTM {val + floating:.2f}€"
         if grid:
             grid_pnl = grid.get("total_pnl_eur", 0)
             grid_fees = grid.get("total_fees_eur", 0)
@@ -212,4 +248,4 @@ class TelegramNotifier:
             text += "\n\n📋 *Operaciones recientes*"
             for op in operations[:8]:
                 text += "\n" + self._op_line(op)
-        await self._send(text)
+        return await self._send(text)

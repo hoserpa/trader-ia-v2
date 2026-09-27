@@ -145,6 +145,7 @@ class GridStrategy:
         self._reconcile_with_portfolio()
         await self._reconcile_pair_pnl()
         await self._restore_open_positions()
+        self._global_state["enabled"] = True
         self._running = True
         await self._save_global_state()
         logger.info(f"Grid activo en {len(self._state)} pares")
@@ -163,7 +164,7 @@ class GridStrategy:
         initial = port.get("initial_balance_eur", port.get("balance_eur", 0))
         real_pnl = round(port.get("balance_eur", 0) - initial, 4)
         self._global_state["total_pnl_eur"] = real_pnl
-        self._global_state["real_pnl_eur"] = real_pnl
+        self._global_state.pop("real_pnl_eur", None)
 
     async def _reconcile_pair_pnl(self):
         """Sincroniza el PnL por par en Redis con la suma real de la BD."""
@@ -755,6 +756,7 @@ class GridStrategy:
                 f"Grid {pair}: {len(liquidated)} posiciones liquidadas "
                 f"@ {current_price:.2f}e antes de recentrar: {liquidated}"
             )
+        return len(liquidated)
 
     async def _check_rebalance(self, pair: str, current_price: float):
         """Recentra el grid si el precio se desvió del centro."""
@@ -766,7 +768,7 @@ class GridStrategy:
             logger.info(
                 f"Grid {pair}: precio desviado {deviation:.1%} > {threshold:.0%}, liquidando y recalculando..."
             )
-            await self._liquidate_pair_positions(pair, current_price)
+            n_liquidated = await self._liquidate_pair_positions(pair, current_price)
             pnl = self._state[pair]["pnl_eur"]
             fees = self._state[pair].get("fees_eur", 0)
             trades_count = self._state[pair]["total_grid_trades"]
@@ -799,6 +801,11 @@ class GridStrategy:
             logger.info(
                 f"Grid {pair}: recalculado. Nuevo centro: {current_price:.2f}e"
             )
+            if self.telegram:
+                await self.telegram.notify_warning(
+                    f"Grid {pair} RECENTRADO por desviación {deviation:.1%}: "
+                    f"{n_liquidated} posiciones liquidadas @ {current_price:.2f}€ · PnL {pnl:+.2f}€"
+                )
 
     async def _check_global_stop_loss(self):
         """Stop loss global del grid."""
@@ -815,6 +822,11 @@ class GridStrategy:
                 logger.warning(
                     f"Grid SL activado: PnL={pnl_pct:.1%} < -{config.grid.stop_loss_pct:.0%}"
                 )
+                if self.telegram:
+                    await self.telegram.notify_warning(
+                        f"Stop-loss global: PnL {pnl_pct:.1%} < -{config.grid.stop_loss_pct:.0%} · {total_pnl:+.2f}€",
+                        warn_key="global_sl",
+                    )
                 await self.stop()
 
     async def _save_pair_state(self, pair: str):

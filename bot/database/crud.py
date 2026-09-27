@@ -393,7 +393,7 @@ def get_stats_summary(db: Session) -> dict:
 
     total_fees = round(sum(x.fee_eur for x in trades), 4)
     open_ops = len(open_rows)
-    total_ops = len(order)
+    total_ops = len(closed_rows) + open_ops
     total_trades = len(trades)
     wins = sum(1 for p in pnls if p > 0)
     losses = sum(1 for p in pnls if p < 0)

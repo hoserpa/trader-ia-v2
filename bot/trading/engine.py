@@ -216,6 +216,7 @@ class TradingEngine:
                 await self.grid_strategy.check_orders()
             except Exception as e:
                 logger.error(f"Error en grid loop: {e}")
+                await self.telegram.notify_error(f"grid_loop: {e}", warn_key="grid_loop")
             await asyncio.sleep(config.grid.poll_interval)
 
     async def _monitoring_loop(self) -> None:
@@ -229,6 +230,7 @@ class TradingEngine:
                 await self._send_daily_summary_if_needed()
             except Exception as e:
                 logger.warning(f"Error en monitoring loop: {e}")
+                await self.telegram.notify_error(f"monitoring_loop: {e}", warn_key="monitoring_loop")
             await asyncio.sleep(300)
 
     async def _update_atr_cache(self):
@@ -275,10 +277,17 @@ class TradingEngine:
             "total_fees_eur": grid_state.get("total_fees_eur", 0),
         }
 
-        await self.telegram.send_daily_summary(
-            portfolio_state, stats, grid=grid_summary, operations=review_ops
+        floating = round(
+            sum(p.get("pnl_eur") or 0 for p in portfolio_state.get("positions", {}).values()),
+            4,
         )
-        await self.redis.set(today_key, today_str)
+        ok = await self.telegram.send_daily_summary(
+            portfolio_state, stats, grid=grid_summary, operations=review_ops, floating=floating
+        )
+        if ok:
+            await self.redis.set(today_key, today_str)
+        else:
+            logger.warning("Resumen diario no enviado (Telegram); se reintentará en el próximo ciclo")
 
     async def _check_drawdown(self) -> None:
         port_state = self.portfolio.get()
