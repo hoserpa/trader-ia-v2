@@ -7,6 +7,8 @@
 Bot Python de trading **grid** (estrategia de cuadrícula) que corre en **demo** sobre Kraken (BTC/EUR, ETH/EUR, SOL/EUR), con dashboard web integrado en tiempo real.
 
 - **Objective (realista)**: 2-5% mensual a **leverage 1** (sin leverage demo; no usar >1 en demo)
+  - Hito de salida a real: 30 días consecutivos con ≥2%/mes neto y máx drawdown ≤2% → revisar despliegue real con capital pequeño. Hasta entonces: demo-only.
+  - Monitor de tendencia (grid bidireccional): no tocar config por un único rebalance. Solo reevaluar umbral (8→6%) o el lado short si hay un 2º rebalance en la misma semana.
 - **Python**: 3.11 (via Docker)
 - **Main Dependencies**: ccxt, pandas, fastapi, sqlalchemy, redis, loguru
 - **Database**: SQLite + Redis (demo)
@@ -160,9 +162,12 @@ docker compose ps
 
 - **Engine**: `bot/trading/engine.py` - bucle de monitoreo y coordinación; reconcilia el PnL total con el balance real del portfolio (BD como fuente de verdad), regenera snapshots con throttle (1/hora o cambio >0.01), restaura posiciones abiertas al reiniciar.
 - **Grid**: `bot/strategies/grid_strategy.py` - 3 pares, 15 niveles/par, rango 8%, spacing ~1.14% (margen 0.6pp > suelo 2×fee 0.52%), leverage 1, capital 90%, min-lot 2€, stop-loss 5%, poll 15s, ATR-adaptive desactivado.
+- **Bidireccional en demo**: el grid opera en ambos lados (compra abajo, vende arriba). `_pair_short_ok` en demo devuelve `broker.has_short_support` directamente (el check de `EXCHANGE_ALLOW_SHORT` solo aplica en modo real), así que abre shorts simulados si la API los soporta. Las posiciones "short" del dashboard son los contra-lados pendientes de recomprar (sin margen, leverage 1).
+- **Fees**: el grid calcula el PnL neto de cada fill con `broker.fee_rate` (maker 0.16% en demo; si se activara modo real usaría taker 0.26%, conservador). Cada fill guarda su `fee_eur`; el balance acredita `pnl` neto por pierna y descuenta TODAS las comisiones.
 - **Demo**: `bot/trading/demo_trader.py` - sin ejecución real; el PnL se acredita al balance simulado.
 - **Clave grid**: cada ciclo lleno captura el spread entre niveles; el PnL por ciclo = spread − 2×fee. No es rentable fijar spacing menor que ~2×fee.
 - Cuando el precio se desvía del centro >8% (rebalance threshold), el grid **liquida posiciones y recentra** (rebalance). Si la fuga supera el stop-loss, cierra con pérdida.
+- **Reinicios**: `start()` restaura el estado desde Redis y fuerza `enabled=true` + `_running=true` al arrancar (independiente de lo que haya quedado grabado en `grid:global`), para que un reinicio del contenedor nunca deje el grid pausado en silencio.
 
 ---
 
