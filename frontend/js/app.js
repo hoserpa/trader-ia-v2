@@ -12,7 +12,6 @@ createApp({
     const prices = ref({});
     const trades = ref([]);
     const systemLogs = ref([]);
-    const latestSignals = ref([]);
     const stats = ref({});
     const gridState = ref({ enabled: false, running: false, pairs: {}, config: {} });
     const historyDays = ref(30);
@@ -43,18 +42,11 @@ createApp({
         else if (msg.type === 'bot_status') botStatus.value = msg.data;
         else if (msg.type === 'price_update') prices.value[msg.data.pair] = msg.data.price;
         else if (msg.type === 'candle') { updateLiveCandle(msg.data); if (botStatus.value.status === 'error') botStatus.value.status = 'running'; }
-        else if (msg.type === 'signal') { updateSignal(msg.data); if (botStatus.value.status === 'error') botStatus.value.status = 'running'; }
         else if (msg.type === 'trade_executed') { loadTrades(); if (botStatus.value.status === 'error') botStatus.value.status = 'running'; }
       };
       ws.onclose = () => {
         wsReconnectTimer = setTimeout(connectWS, 5000);
       };
-    };
-
-    const updateSignal = (data) => {
-      const idx = latestSignals.value.findIndex(s => s.pair === data.pair);
-      if (idx >= 0) latestSignals.value[idx] = data;
-      else latestSignals.value.push(data);
     };
 
     const loadPortfolio = async () => {
@@ -66,10 +58,9 @@ createApp({
 
     const loadAll = async () => {
       try {
-        const [tradesRes, statsRes, sigRes, configRes, logsRes, pricesRes, gridRes] = await Promise.all([
+        const [tradesRes, statsRes, configRes, logsRes, pricesRes, gridRes] = await Promise.all([
           api.get('/trades/operations?limit=50'),
           api.get('/trades/stats'),
-          api.get('/market/signals'),
           api.get('/bot/config'),
           api.get('/logs?limit=100'),
           api.get('/market/prices'),
@@ -78,7 +69,6 @@ createApp({
         await loadPortfolio();
         trades.value = tradesRes.data;
         stats.value = statsRes.data;
-        latestSignals.value = dedupSignals(sigRes.data);
         botConfig.value = configRes.data;
         systemLogs.value = logsRes.data;
         prices.value = pricesRes.data;
@@ -108,12 +98,10 @@ createApp({
         const defaults = { total_value_eur: 100, balance_eur: 100, total_pnl_eur: 0, total_pnl_pct: 0, positions: {} };
         portfolio.value = defaults;
         trades.value = [];
-        latestSignals.value = [];
         stats.value = {};
         const portRes = await api.get('/portfolio');
         if (!portRes.data.error) portfolio.value = portRes.data;
         trades.value = (await api.get('/trades/operations?limit=50')).data;
-        latestSignals.value = (await api.get('/market/signals')).data;
         stats.value = (await api.get('/trades/stats')).data;
         await loadPortfolioHistory(historyDays.value);
         alert('✓ Reset completo: ' + res.data.trades_deleted + ' trades, ' + res.data.positions_deleted + ' posiciones, ' + res.data.snapshots_deleted + ' snapshots borrados');
@@ -169,12 +157,6 @@ createApp({
         await api.delete(`/config/${key}`);
         await loadConfig();
       } catch (e) { alert('Error restaurando campo: ' + e.message); }
-    };
-
-    const dedupSignals = (signals) => {
-      const map = {};
-      signals.forEach(s => { if (!map[s.pair] || s.timestamp > map[s.pair].timestamp) map[s.pair] = s; });
-      return Object.values(map);
     };
 
     const renderPortfolioChart = (history) => {
@@ -324,7 +306,6 @@ createApp({
       return '';
     });
     const openPositions = computed(() => Object.keys(portfolio.value.positions || {}));
-    const signalClass = (s) => ({ 'badge-buy': s === 'BUY', 'badge-sell': s === 'SELL', 'badge-hold': s === 'HOLD' });
 
     onMounted(async () => {
       await loadAll();
@@ -344,8 +325,8 @@ createApp({
 
     return {
       portfolio, botStatus, botConfig, prices, trades, systemLogs,
-      latestSignals, stats, gridState, historyDays, logContainer, openPositions,
-      formatPrice, formatDate, modeClass, statusClass, statusTextClass, signalClass,
+      stats, gridState, historyDays, logContainer, openPositions,
+      formatPrice, formatDate, modeClass, statusClass, statusTextClass,
       tradeColor, badgeClass, pnlClass, formatPnl, opSideLabel, formatAmount,
       loadPortfolioHistory, resetPortfolio,
       chartPairs, chartPair, chartTimeframes, chartTimeframe, chartDays,

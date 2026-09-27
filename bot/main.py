@@ -8,7 +8,6 @@ from config import config
 from database.init_db import init_db
 from data.historical import initialize_historical_data
 from trading.engine import TradingEngine
-from scheduler.jobs import setup_scheduler
 
 
 def setup_logging():
@@ -45,10 +44,6 @@ async def main():
     logger.info("Descargando datos históricos (puede tardar varios minutos)...")
     await initialize_historical_data(days=90)
 
-    scheduler = setup_scheduler(redis_client)
-    scheduler.start()
-    logger.info("Scheduler iniciado.")
-
     engine = TradingEngine(redis_client)
     try:
         await engine.start()
@@ -56,7 +51,6 @@ async def main():
         logger.info("Interrupción por teclado. Deteniendo bot...")
     finally:
         await engine.stop()
-        scheduler.shutdown()
         await redis_client.close()
         logger.info("Bot detenido correctamente.")
 

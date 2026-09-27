@@ -55,20 +55,6 @@ h2 { font-size: 1rem; font-weight: 600; margin-bottom: 12px; width: 100%; }
 .price-chart { width: 100%; height: 380px; position: relative; }
 .price-chart.empty { display: flex; align-items: center; justify-content: center; color: #6b7280; font-size: 0.9rem; }
 
-.signals-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
-.signal-card { background: #2d333b; padding: 14px; border-radius: 10px; }
-.signal-pair { font-weight: 600; margin-bottom: 6px; }
-.signal-badge { display: inline-block; padding: 4px 10px; border-radius: 6px; font-size: 0.8rem; font-weight: 600; margin-bottom: 6px; }
-.signal-confidence { font-size: 0.7rem; color: #9ca3af; margin-bottom: 10px; }
-.bar-row { display: flex; align-items: center; gap: 8px; font-size: 0.7rem; margin-bottom: 4px; }
-.bar-row span:first-child { width: 36px; }
-.bar-row span:last-child { width: 32px; text-align: right; }
-.bar { flex: 1; height: 8px; background: #1c1f26; border-radius: 4px; overflow: hidden; }
-.bar-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
-.bar-fill.buy { background: #4ade80; }
-.bar-fill.hold { background: #a5b4fc; }
-.bar-fill.sell { background: #f87171; }
-
 .table-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -16px; padding: 0 16px; }
 .data-table { width: 100%; min-width: 500px; border-collapse: collapse; background: #1c1f26; border-radius: 12px; overflow: hidden; margin-bottom: 20px; }
 .data-table .mono { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace; color: #9ca3af; }
@@ -90,7 +76,7 @@ h2 { font-size: 1rem; font-weight: 600; margin-bottom: 12px; width: 100%; }
 .log-badge.log-warning { background: #5f4a1e; color: #fbbf24; }
 .log-msg { color: #9ca3af; flex: 1; line-height: 1.4; word-break: break-word; }
 
-.chart-section, .signals-section, .grid-section { background: #1c1f26; padding: 16px; border-radius: 12px; margin-bottom: 20px; }
+.chart-section, .grid-section { background: #1c1f26; padding: 16px; border-radius: 12px; margin-bottom: 20px; }
 .grid-section h2 .badge { margin-left: 8px; vertical-align: middle; }
 .grid-summary { display: grid; grid-template-columns: 1fr; gap: 12px; }
 .grid-pair-block { background: #2d333b; padding: 14px; border-radius: 10px; }
@@ -115,13 +101,12 @@ h2 { font-size: 1rem; font-weight: 600; margin-bottom: 12px; width: 100%; }
   .card-label { font-size: 0.875rem; margin-bottom: 8px; }
   .card-value { font-size: 1.75rem; }
   .card-sub { font-size: 0.875rem; }
-  .chart-section, .signals-section, .grid-section { padding: 20px; margin-bottom: 24px; }
+  .chart-section, .grid-section { padding: 20px; margin-bottom: 24px; }
   .section-header { margin-bottom: 16px; }
   h2 { font-size: 1.125rem; margin-bottom: 16px; }
-  .signals-grid, .grid-summary { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
-  .signal-card, .grid-pair-block { padding: 16px; }
-  .signal-pair, .grid-pair-header { margin-bottom: 8px; }
-  .signal-badge { margin-bottom: 8px; }
+  .grid-summary { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+  .grid-pair-block { padding: 16px; }
+  .grid-pair-header { margin-bottom: 8px; }
   .signal-confidence { font-size: 0.75rem; margin-bottom: 12px; }
   .bar-row { font-size: 0.75rem; margin-bottom: 4px; }
   .bar-row span:first-child { width: 40px; }

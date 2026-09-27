@@ -26,7 +26,6 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./bot/model:/app/model
       - ./bot:/app/bot
       - ./api:/app/api
       - ./data:/app/data

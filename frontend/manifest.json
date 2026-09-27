@@ -1,7 +1,7 @@
 {
   "name": "Crypto Trader Bot",
   "short_name": "CryptoBot",
-  "description": "Cryptocurrency trading bot with ML signals",
+  "description": "Cryptocurrency grid trading bot dashboard",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0f1419",

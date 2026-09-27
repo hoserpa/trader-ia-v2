@@ -229,13 +229,9 @@ docker compose up -d --build
 
 ---
 
-## Legado ML (actividad ML desactivada)
+## Legado ML (eliminado y archivado)
 
-El proyecto arrancó como un bot **LightGBM** con señales de compra/venta entrenadas en Colab. Esa ruta está **desactivada**: el grid corre sin modelo y la operativa real no usa ML. El código ML sigue existiendo en el repo pero **no se usa** en la operativa grid.
-
-- **Archivos legado (no usados en grid)**: `bot/model/`, `bot/trading/predictor.py` (LightGBM), `training/`, `bot/scheduler/` (ML), `Dockerfile` bot.
-- **Para reactivar (no recomendado)**: entrenar en `training/`, colocar `model/trained_model.pkl` y conectar el `TradingEngine`. No encender ML junto al grid sin validar antes en paper-trading.
-- `GRID_ATR_ADAPTIVE` es la única pieza de "adaptabilidad" vigente.
+El proyecto arrancó como un bot **LightGBM** con señales de compra/venta entrenadas en Colab. Esa ruta está **desactivada y eliminada**: el grid corre sin modelo y la operativa no usa ML. Todo el código y artefactos ML (`training/`, `bot/model/`, `bot/scheduler/`, simulador, endpoint de señales, config del modelo) fue borrado del repo en `archive/ml-legacy` (tag de Git). Si en el futuro se quisiera explorar ML, se parte de cero partiendo de ese tag; no mezclar con el grid.
 
 ---
 

@@ -1,6 +1,6 @@
 # AGENTS.md - Crypto Trader Bot
 
-> **Documento de trabajo del agente.** Actualizado a la realidad operativa: **grid demo-only**. El ML/entrenamiento es **legado** (ver sección final).
+> **Documento de trabajo del agente.** Actualizado a la realidad operativa: **grid demo-only**. El ML/entrenamiento fue **eliminado y archivado** (ver sección final).
 
 ## Project Overview
 
@@ -24,7 +24,6 @@ bot/           - Código principal del bot (motor + estrategia grid + portfolio 
 api/           - FastAPI backend (contiene y arranca el grid)
 redis/         - Servicio Redis (infraestructura)
 frontend/      - Dashboard Vue.js (CDN, sin build step)
-training/      - Scripts de entrenamiento (LEGADO ML - no se usan en grid)
 scripts/       - Utilidades (backup, regen_snapshots, etc.)
 ```
 
@@ -120,7 +119,6 @@ API_PASSWORD=changeme
 - `GET /api/operations` - Historial de operaciones (ciclo grid)
 - `GET /api/trades/stats` - Estadísticas de trading
 - `GET /api/bot/status` - Estado del bot
-- `GET /api/signals` - Señales recientes (legacy ML; vacío en grid)
 - `WS /ws` - Actualizaciones en tiempo real
 
 ---
@@ -214,10 +212,10 @@ class Config:
 
 ---
 
-## Legado ML (desactivado)
+## Legado ML (eliminado y archivado)
 
-El proyecto arrancó como un bot LightGBM con señales de compra/venta entrenadas en Colab. **Esa ruta está desactivada**: el grid corre sin modelo, y la operativa real no usa ML.
+El proyecto arrancó como un bot LightGBM con señales de compra/venta entrenadas en Colab. **Esa ruta fue eliminada del repo**: el grid corre sin modelo y no hay código ML en la operativa.
 
-- **No mezclar**: no enciendas señales ML junto al grid sin validar en paper-trading primero.
-- Archivos que siguen existiendo pero NO se usan en la operativa grid: `bot/model/predictor.py`, `training/*`, `bot/scheduler/*` (ML).
-- Para reactivar (no recomendado): entrenar `training/train_model.py`, colocar `model/trained_model.pkl` y conectar el `TradingEngine` al interpretator del modelo.
+- Todo lo ML (entrenamiento, modelo, predictor, scheduler legacy, simulador, señales, config del modelo) fue borrado. Punto de restauración: tag `archive/ml-legacy`.
+- **No mezclar**: no reintroduzcas ML junto al grid sin validar previamente en paper-trading partiendo de ese tag.
+- Nada en `bot/`, `api/` ni `frontend/` hace referencia a ML; `/api/simulate` y `/api/signals` ya no existen.

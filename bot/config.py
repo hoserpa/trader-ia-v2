@@ -69,9 +69,7 @@ class TradingConfig:
     base_currency: str = field(default_factory=lambda: os.getenv("BASE_CURRENCY", "EUR"))
     demo_initial_balance: float = field(default_factory=lambda: float(os.getenv("DEMO_INITIAL_BALANCE", "100.0")))
     analysis_interval: int = field(default_factory=lambda: int(os.getenv("ANALYSIS_INTERVAL_SECONDS", "600")))
-    invert_ml_signals: bool = field(default_factory=lambda: os.getenv("INVERT_ML_SIGNALS", "false").lower() == "true")
-    timeframe: str = field(default_factory=lambda: _normalize_timeframe(os.getenv("MODEL_TIMEFRAME", "15m")))
-    candles_required: int = field(default_factory=lambda: int(os.getenv("MODEL_CANDLES_REQUIRED", "350")))
+    timeframe: str = field(default_factory=lambda: _normalize_timeframe(os.getenv("TIMEFRAME", "15m")))
 
     def is_demo(self) -> bool:
         return self.mode == "demo"
@@ -140,12 +138,6 @@ class DatabaseConfig:
 
 
 @dataclass
-class ModelConfig:
-    model_path: str = field(default_factory=lambda: os.getenv("MODEL_PATH", "/app/model/trained_model.pkl"))
-    scaler_path: str = field(default_factory=lambda: os.getenv("SCALER_PATH", "/app/model/scaler.pkl"))
-
-
-@dataclass
 class TelegramConfig:
     enabled: bool = field(default_factory=lambda: os.getenv("TELEGRAM_ENABLED", "false").lower() == "true")
     bot_token: str = field(default_factory=lambda: os.getenv("TELEGRAM_BOT_TOKEN", ""))
@@ -175,7 +167,6 @@ class AppConfig:
     risk: RiskConfig = field(default_factory=RiskConfig)
     grid: GridConfig = field(default_factory=GridConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
-    model: ModelConfig = field(default_factory=ModelConfig)
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
     api: APIConfig = field(default_factory=APIConfig)
     log: LogConfig = field(default_factory=LogConfig)

@@ -19,7 +19,7 @@ RUN pip install --no-cache-dir --prefix=/install -r /tmp/requirements.txt && \
 FROM python:3.11-slim
 
 LABEL maintainer="crypto-trader"
-LABEL description="Crypto Trader Bot with ML"
+LABEL description="Crypto Trader Grid Bot"
 
 WORKDIR /app
 
@@ -33,7 +33,7 @@ COPY --from=builder /install /usr/local
 
 COPY . .
 
-RUN mkdir -p /app/data /app/model
+RUN mkdir -p /app/data
 
 ENV PYTHONUNBUFFERED=1
 

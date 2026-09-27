@@ -15,11 +15,9 @@ from config import config
 from database.init_db import init_db
 from data.historical import initialize_historical_data
 from trading.engine import TradingEngine
-from scheduler.jobs import setup_scheduler
 
 redis_client: aioredis.Redis = None
 _trading_engine: TradingEngine = None
-_scheduler = None
 
 
 def _setup_logging():
@@ -33,7 +31,7 @@ def _setup_logging():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global redis_client, _trading_engine, _scheduler
+    global redis_client, _trading_engine
 
     _setup_logging()
     config.validate()
@@ -48,9 +46,6 @@ async def lifespan(app: FastAPI):
 
     await initialize_historical_data(days=90)
 
-    _scheduler = setup_scheduler(redis_client)
-    _scheduler.start()
-
     _trading_engine = TradingEngine(redis_client)
     engine_task = asyncio.create_task(_trading_engine.start())
 
@@ -58,7 +53,6 @@ async def lifespan(app: FastAPI):
 
     await _trading_engine.stop()
     engine_task.cancel()
-    _scheduler.shutdown()
     await redis_client.close()
 
 
@@ -89,14 +83,13 @@ def get_redis():
     return redis_client
 
 
-from api.routers import portfolio, trades, market, bot, logs, simulate, config as config_router
+from api.routers import portfolio, trades, market, bot, logs, config as config_router
 
 app.include_router(portfolio.router, prefix="/api/portfolio", tags=["Portfolio"])
 app.include_router(trades.router, prefix="/api/trades", tags=["Trades"])
 app.include_router(market.router, prefix="/api/market", tags=["Market"])
 app.include_router(bot.router, prefix="/api/bot", tags=["Bot"])
 app.include_router(logs.router, prefix="/api/logs", tags=["Logs"])
-app.include_router(simulate.router, prefix="/api/simulate", tags=["Simulation"])
 app.include_router(config_router.router, prefix="/api/config", tags=["Config"])
 
 from api.websocket.live import router as ws_router

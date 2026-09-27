@@ -64,20 +64,3 @@ async def get_candles(
         return candles
     finally:
         db.close()
-
-
-@router.get("/signals")
-async def get_signals():
-    from api.main import get_redis
-    from database.crud import get_recent_decisions
-    from database.init_db import SessionLocal
-    db = SessionLocal()
-    try:
-        decisions = get_recent_decisions(db, limit=len(config.trading.pairs) * 3)
-        return [{
-            "pair": d.pair, "signal": d.signal, "confidence": d.confidence,
-            "prob_buy": d.prob_buy, "prob_sell": d.prob_sell, "prob_hold": d.prob_hold,
-            "executed": d.executed, "timestamp": d.timestamp.isoformat() + "Z",
-        } for d in decisions]
-    finally:
-        db.close()

@@ -141,22 +141,6 @@
     <div id="priceChart" class="price-chart"></div>
   </section>
 
-  <section class="signals-section">
-    <h2>Señales actuales</h2>
-    <div class="signals-grid">
-      <div v-for="sig in latestSignals" :key="sig.pair" class="signal-card">
-        <div class="signal-pair">{{ sig.pair }}</div>
-        <div class="signal-badge" :class="signalClass(sig.signal)">{{ sig.signal }}</div>
-        <div class="signal-confidence">{{ (sig.confidence * 100).toFixed(1) }}% confianza</div>
-        <div class="signal-bars">
-          <div class="bar-row"><span>BUY</span><div class="bar"><div class="bar-fill buy" :style="{width: (sig.prob_buy*100)+'%'}"></div></div><span>{{ (sig.prob_buy*100).toFixed(0) }}%</span></div>
-          <div class="bar-row"><span>HOLD</span><div class="bar"><div class="bar-fill hold" :style="{width: (sig.prob_hold*100)+'%'}"></div></div><span>{{ (sig.prob_hold*100).toFixed(0) }}%</span></div>
-          <div class="bar-row"><span>SELL</span><div class="bar"><div class="bar-fill sell" :style="{width: (sig.prob_sell*100)+'%'}"></div></div><span>{{ (sig.prob_sell*100).toFixed(0) }}%</span></div>
-        </div>
-      </div>
-    </div>
-  </section>
-
   <section v-if="gridState.enabled" class="grid-section">
     <h2>Grid Trading <span class="badge" :class="gridState.running ? 'badge-buy' : 'badge-sell'">{{ gridState.running ? 'ACTIVO' : 'DETENIDO' }}</span> <span class="badge badge-warn">SIMULACIÓN — no afecta al saldo</span></h2>
     <div class="grid-summary">
