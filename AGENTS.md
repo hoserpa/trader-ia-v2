@@ -7,7 +7,7 @@
 Bot Python de trading **grid** (estrategia de cuadrícula) que corre en **demo** sobre Kraken (BTC/EUR, ETH/EUR, SOL/EUR), con dashboard web integrado en tiempo real.
 
 - **Objective (realista)**: 2-5% mensual a **leverage 1** (sin leverage demo; no usar >1 en demo)
-  - Hito de salida a real: 30 días consecutivos con ≥2%/mes neto y máx drawdown ≤2% → revisar despliegue real con capital pequeño. Hasta entonces: demo-only.
+  - Hito de salida a real: 30 días consecutivos con ≥2%/mes neto y máx drawdown ≤2% → revisar despliegue real con capital pequeño. Hasta entonces: demo-only. **Contador reiniciado el 28 Sep 2026** (reset completo con contabilidad corregida: balance = PnL realizado, patrimonio = realizado + no realizado vs entrada; medir sobre patrimonio).
   - Monitor de tendencia (grid bidireccional): no tocar config por un único rebalance. Solo reevaluar umbral (8→6%) o el lado short si hay un 2º rebalance en la misma semana.
 - **Python**: 3.11 (via Docker)
 - **Main Dependencies**: ccxt, pandas, fastapi, sqlalchemy, redis, loguru
