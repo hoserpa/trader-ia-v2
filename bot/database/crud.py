@@ -274,6 +274,7 @@ def _build_round_trips(trades: list[Trade]) -> tuple[list[dict], list[dict]]:
             "entry_fee": round(entry_fee, 4),
             "exit_price": round(t.price, 8),
             "exit_fee": round(t.fee_eur, 4),
+            "exit_reason": getattr(t, "reason", "grid") or "grid",
             "total_fees": round(entry_fee + t.fee_eur, 4),
             "pnl_eur": pnl,
             "amount_eur_entry": round(entry * t.amount_crypto, 4),

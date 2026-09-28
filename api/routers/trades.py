@@ -19,6 +19,7 @@ def list_trades(limit: int = Query(default=50, ge=1, le=500), offset: int = 0):
             "amount_crypto": t.amount_crypto, "amount_eur": t.amount_eur,
             "price": t.price, "fee_eur": t.fee_eur, "pnl_eur": t.pnl_eur,
             "timestamp": t.timestamp.isoformat() + "Z", "mode": t.mode,
+            "reason": t.reason,
         } for t in trades]
     finally:
         db.close()

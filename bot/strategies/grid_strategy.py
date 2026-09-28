@@ -613,11 +613,12 @@ class GridStrategy:
                     pnl, fees_total, duration,
                 )
 
-    async def _persist_grid_fill(self, pair: str, level: dict, fill_price: float, pnl: float, fee_eur: float):
+    async def _persist_grid_fill(self, pair: str, level: dict, fill_price: float, pnl: float, fee_eur: float, reason: str = "grid"):
         """Registra cada fill en la BD como trade y acredita el PnL neto al portfolio.
 
         Mantiene el balance_total del portfolio sincronizado con el PnL neto del grid
         (spread - comisiones). Publica portfolio_update por WebSocket para el dashboard.
+        `reason` distingue el origen del cierre: "grid" (ciclo normal) o "rebalance".
         """
         try:
             from database.crud import create_trade
@@ -633,6 +634,7 @@ class GridStrategy:
                     "pnl_eur": round(pnl, 4) if isinstance(level.get("id"), str) else None,
                     "mode": config.trading.mode,
                     "cycle_id": level.get("cycle_id"),
+                    "reason": reason,
                 })
 
             await self.portfolio.update_balance(pnl)
@@ -729,7 +731,7 @@ class GridStrategy:
                 self._global_state.get("total_grid_trades", 0) + 1
             )
 
-            await self._persist_grid_fill(pair, close_level, current_price, pnl, fee_eur)
+            await self._persist_grid_fill(pair, close_level, current_price, pnl, fee_eur, reason="rebalance")
             level["status"] = "filled"
             level["filled_at"] = datetime.now(timezone.utc).isoformat()
             level["filled_price"] = current_price

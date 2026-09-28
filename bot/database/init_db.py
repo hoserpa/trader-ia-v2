@@ -53,6 +53,12 @@ def init_db() -> sessionmaker:
             conn.execute(text("CREATE INDEX IF NOT EXISTS idx_trades_cycle ON trades(cycle_id)"))
         except Exception:
             pass
+        try:
+            conn.execute(text("ALTER TABLE trades ADD COLUMN reason VARCHAR(20) DEFAULT 'grid'"))
+            logger.info("Migración: columna reason añadida a trades (grid/rebalance)")
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_trades_reason ON trades(reason)"))
+        except Exception:
+            pass
         conn.commit()
 
     logger.info(f"Base de datos inicializada en {config.database.sqlite_path}")
