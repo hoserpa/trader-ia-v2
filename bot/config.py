@@ -21,6 +21,11 @@ def _normalize_pair(pair: str, base_currency: str = "EUR") -> str:
     return pair
 
 
+def _split_pairs(val: str) -> list:
+    """Divide lista de pares separada por comas: sin espacios ni vacíos."""
+    return [p.strip() for p in val.split(",") if p.strip()]
+
+
 def _normalize_timeframe(tf: str) -> str:
     """Normaliza el timeframe al formato que espera el exchange.
     
@@ -65,7 +70,7 @@ class ExchangeConfig:
 @dataclass
 class TradingConfig:
     mode: str = field(default_factory=lambda: os.getenv("TRADING_MODE", "demo"))
-    pairs: list = field(default_factory=lambda: os.getenv("TRADING_PAIRS", "BTC/EUR,ETH/EUR,SOL/EUR").split(","))
+    pairs: list = field(default_factory=lambda: _split_pairs(os.getenv("TRADING_PAIRS", "BTC/EUR,ETH/EUR,SOL/EUR")))
     base_currency: str = field(default_factory=lambda: os.getenv("BASE_CURRENCY", "EUR"))
     demo_initial_balance: float = field(default_factory=lambda: float(os.getenv("DEMO_INITIAL_BALANCE", "100.0")))
     analysis_interval: int = field(default_factory=lambda: int(os.getenv("ANALYSIS_INTERVAL_SECONDS", "600")))
@@ -113,7 +118,7 @@ class RiskConfig:
 @dataclass
 class GridConfig:
     enabled: bool = field(default_factory=lambda: os.getenv("GRID_ENABLED", "true").lower() == "true")
-    pairs: list = field(default_factory=lambda: os.getenv("GRID_PAIRS", "BTC/EUR,ETH/EUR,SOL/EUR").split(","))
+    pairs: list = field(default_factory=lambda: _split_pairs(os.getenv("GRID_PAIRS", "BTC/EUR,ETH/EUR,SOL/EUR")))
     leverage: int = field(default_factory=lambda: int(os.getenv("GRID_LEVERAGE", "1")))
     levels_per_pair: int = field(default_factory=lambda: int(os.getenv("GRID_LEVELS", "15")))
     min_lot_value_eur: float = field(default_factory=lambda: float(os.getenv("GRID_MIN_LOT_VALUE_EUR", "5")))
@@ -183,6 +188,20 @@ class AppConfig:
             raise ValueError(f"KRAKEN_MAKER_FEE inválido: {self.exchange.maker_fee}. Debe estar entre 0 y 0.05.")
         if not (self.grid.min_lot_value_eur > 0):
             raise ValueError(f"GRID_MIN_LOT_VALUE_EUR inválido: {self.grid.min_lot_value_eur}. Debe ser > 0.")
+        if self.grid.leverage < 1:
+            raise ValueError(f"GRID_LEVERAGE inválido: {self.grid.leverage}. Debe ser >= 1.")
+        if self.grid.levels_per_pair < 2:
+            raise ValueError(f"GRID_LEVELS inválido: {self.grid.levels_per_pair}. Debe ser >= 2.")
+        if not (0 < self.grid.capital_pct <= 1):
+            raise ValueError(f"GRID_CAPITAL_PCT inválido: {self.grid.capital_pct}. Debe estar entre 0 y 1.")
+        if not (0 < self.grid.range_pct < 1):
+            raise ValueError(f"GRID_RANGE_PCT inválido: {self.grid.range_pct}. Debe estar entre 0 y 1.")
+        if self.grid.rebalance_threshold <= 0:
+            raise ValueError(f"GRID_REBALANCE_THRESHOLD inválido: {self.grid.rebalance_threshold}. Debe ser > 0.")
+        if self.grid.poll_interval <= 0:
+            raise ValueError(f"GRID_POLL_INTERVAL inválido: {self.grid.poll_interval}. Debe ser > 0.")
+        if self.grid.stop_loss_pct <= 0:
+            raise ValueError(f"GRID_STOP_LOSS_PCT inválido: {self.grid.stop_loss_pct}. Debe ser > 0.")
         if not (self.exchange.margin_leverage >= 1):
             raise ValueError(f"EXCHANGE_MARGIN_LEVERAGE inválido: {self.exchange.margin_leverage}. Debe ser >= 1.")
         if self.exchange.margin_mode not in ("isolated", "cross"):
