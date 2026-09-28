@@ -620,19 +620,6 @@ class GridStrategy:
         (spread - comisiones). Publica portfolio_update por WebSocket para el dashboard.
         """
         try:
-            intraday = self.portfolio.get()
-            await self.portfolio.update_balance(pnl)
-            port = self.portfolio.get()
-
-            initial = port.get("initial_balance_eur", port.get("balance_eur", 0))
-            new_total = round(port["balance_eur"], 4)
-            port["total_value_eur"] = new_total
-            port["total_pnl_eur"] = round(new_total - initial, 4)
-            port["total_pnl_pct"] = (
-                round((new_total - initial) / initial * 100, 4) if initial > 0 else 0
-            )
-            await self.portfolio._save(port)
-
             from database.crud import create_trade
             from database.init_db import SessionLocal
             with SessionLocal() as db:
@@ -647,6 +634,18 @@ class GridStrategy:
                     "mode": config.trading.mode,
                     "cycle_id": level.get("cycle_id"),
                 })
+
+            await self.portfolio.update_balance(pnl)
+            port = self.portfolio.get()
+
+            initial = port.get("initial_balance_eur", port.get("balance_eur", 0))
+            new_total = round(port["balance_eur"], 4)
+            port["total_value_eur"] = new_total
+            port["total_pnl_eur"] = round(new_total - initial, 4)
+            port["total_pnl_pct"] = (
+                round((new_total - initial) / initial * 100, 4) if initial > 0 else 0
+            )
+            await self.portfolio._save(port)
 
             await self.redis.publish(
                 "bot:live_updates",
