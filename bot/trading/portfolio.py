@@ -98,11 +98,12 @@ class Portfolio:
 
         Soporta posiciones long (PnL = current - invested) y short (PnL = invested - current).
 
-        total_value_eur = balance_eur (caja) + posiciones abiertas valoradas. El
-        balance financia cada pierna (debita al abrir, acredita al cerrar), así que
-        sumar el MTM de los niveles abiertos reconstruye el patrimonio real. Sin
-        `open_levels` se mantiene el comportamiento anterior (total = caja), p. ej.
-        en tests o con el grid detenido.
+        total_value_eur = balance_eur (PnL realizado) + no realizado de las
+        posiciones abiertas (precio actual − entrada). No se suma el valor
+        completo del nivel porque el balance nunca debitó su nocional: se mide
+        la diferencia vs entrada, que es el drawdown real del objetivo.
+        Sin `open_levels` se mantiene el comportamiento anterior (total = caja),
+        p. ej. en tests o con el grid detenido.
         """
         for pair, pos in self._state["positions"].items():
             price = current_prices.get(pair, pos.get("entry_price", 0))
@@ -123,7 +124,9 @@ class Portfolio:
                 if not price:
                     continue
                 for lvl in levels:
-                    equity += lvl["amount"] * price if lvl["side"] == "buy" else -lvl["amount"] * price
+                    sign = 1 if lvl["side"] == "buy" else -1
+                    entry = lvl.get("entry_price") or lvl.get("price") or price
+                    equity += sign * lvl["amount"] * (price - entry)
 
         initial = self._state["initial_balance_eur"]
         self._state["total_value_eur"] = round(equity, 4)

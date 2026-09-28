@@ -672,10 +672,12 @@ class GridStrategy:
             logger.warning(f"Grid {pair}: no se persistió fill: {e}")
 
     def _equity_eur(self, port: dict) -> float:
-        """Patrimonio = PnL realizado + posiciones abiertas valoradas (long +, short −).
+        """Patrimonio = PnL realizado + no realizado de niveles abiertos (vs entrada).
 
-        El balance (realizado) no incluye los niveles abiertos; sumar su MTM da el
-        patrimonio real, que es lo que mide el drawdown del objetivo (≤2%).
+        El balance (realizado) no incluye los niveles abiertos. Sumar el valor
+        completo del nivel doblaría la cuenta (el balance nunca lo debitó), así
+        que solo se suma la diferencia precio-actual − entrada: unrealized,
+        que es lo que mide el drawdown del objetivo (≤2%).
         """
         value = port.get("balance_eur", 0.0)
         for pair, st in self._state.items():
@@ -685,13 +687,16 @@ class GridStrategy:
             for lvl in st.get("levels", []):
                 if lvl.get("status") != "open":
                     continue
-                value += lvl["amount"] * px if lvl["side"] == "buy" else -lvl["amount"] * px
+                sign = 1 if lvl["side"] == "buy" else -1
+                entry = lvl.get("entry_price") or lvl.get("price") or px
+                value += sign * lvl["amount"] * (px - entry)
         return value
 
     def open_positions_for_valuations(self) -> dict:
-        """Niveles abiertos por par, para valorar el patrimonio en el portfolio."""
+        """Niveles abiertos por par (side, amount, entry) para valorar patrimonio."""
         return {
-            pair: [{"side": lvl["side"], "amount": lvl["amount"]}
+            pair: [{"side": lvl["side"], "amount": lvl["amount"],
+                    "entry_price": lvl.get("entry_price") or lvl.get("price")}
                    for lvl in st.get("levels", []) if lvl["status"] == "open"]
             for pair, st in self._state.items()
         }
