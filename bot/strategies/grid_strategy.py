@@ -418,7 +418,10 @@ class GridStrategy:
         short_ok = self._pair_short_ok(pair)
         levels = []
         for i in range(n_levels):
-            level_price = lower + (i * spacing)
+            # Media posicion de spacing de turno: con n impar ningún nivel cae
+            # exactamente en current_price (antes el nivel central se rellenaba
+            # en el primer check_orders con pnl = -fee: un ciclo fantasma).
+            level_price = current_price + (i - (n_levels - 1) / 2 + 0.5) * spacing
             side = "buy" if level_price < current_price else "sell"
             if side == "sell" and not short_ok:
                 logger.info(
@@ -440,6 +443,10 @@ class GridStrategy:
                     "filled_price": None,
                 }
             )
+
+        if levels:
+            lower = min(l["price"] for l in levels)
+            upper = max(l["price"] for l in levels)
 
         self._state[pair] = {
             "pair": pair,
