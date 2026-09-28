@@ -685,7 +685,7 @@ class GridStrategy:
             if not px:
                 continue
             for lvl in st.get("levels", []):
-                if lvl.get("status") != "open":
+                if lvl.get("status") != "open" or not lvl.get("filled_at"):
                     continue
                 sign = 1 if lvl["side"] == "buy" else -1
                 entry = lvl.get("entry_price") or lvl.get("price") or px
@@ -693,11 +693,17 @@ class GridStrategy:
         return value
 
     def open_positions_for_valuations(self) -> dict:
-        """Niveles abiertos por par (side, amount, entry) para valorar patrimonio."""
+        """Niveles ejecutados y sin cerrar (filled), para valorar el patrimonio.
+
+        Un nivel 'open' sin filled_at es una orden resting (límite colocado,
+        aún no ejecutada): no es una posición y no se valora. Solo cuenta la
+        pierna ejecutada que espera contra-orden de cierre.
+        """
         return {
             pair: [{"side": lvl["side"], "amount": lvl["amount"],
                     "entry_price": lvl.get("entry_price") or lvl.get("price")}
-                   for lvl in st.get("levels", []) if lvl["status"] == "open"]
+                   for lvl in st.get("levels", [])
+                   if lvl.get("status") == "open" and lvl.get("filled_at")]
             for pair, st in self._state.items()
         }
 
