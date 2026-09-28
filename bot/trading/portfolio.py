@@ -93,15 +93,16 @@ class Portfolio:
         """Retorna posición de un par desde Redis (no SQLite)."""
         return self._state.get("positions", {}).get(pair)
 
-    async def update_valuations(self, current_prices: dict) -> dict:
+    async def update_valuations(self, current_prices: dict, open_levels: dict | None = None) -> dict:
         """Recalcula el valor total del portafolio con precios actuales.
 
         Soporta posiciones long (PnL = current - invested) y short (PnL = invested - current).
 
-        El PnL por posicion se calcula solo para visualizacion (panel del dashboard). El
-        total_value_eur NO incluye el valor nocional apalancado de las posiciones del grid:
-        el grid contabiliza el PnL realizado en balance_eur (delta a cada cierre) y no
-        inmoviliza capital en posiciones abiertas, por lo que el patrimonio real es el balance.
+        total_value_eur = balance_eur (caja) + posiciones abiertas valoradas. El
+        balance financia cada pierna (debita al abrir, acredita al cerrar), así que
+        sumar el MTM de los niveles abiertos reconstruye el patrimonio real. Sin
+        `open_levels` se mantiene el comportamiento anterior (total = caja), p. ej.
+        en tests o con el grid detenido.
         """
         for pair, pos in self._state["positions"].items():
             price = current_prices.get(pair, pos.get("entry_price", 0))
@@ -115,10 +116,18 @@ class Portfolio:
                 pos["pnl_eur"] = pos["current_value_eur"] - pos["amount_eur_invested"] - exit_fee
             pos["pnl_pct"] = pos["pnl_eur"] / pos["amount_eur_invested"] * 100 if pos["amount_eur_invested"] > 0 else 0
 
-        total = self._state["balance_eur"]
+        equity = self._state["balance_eur"]
+        if open_levels:
+            for pair, levels in open_levels.items():
+                price = current_prices.get(pair)
+                if not price:
+                    continue
+                for lvl in levels:
+                    equity += lvl["amount"] * price if lvl["side"] == "buy" else -lvl["amount"] * price
+
         initial = self._state["initial_balance_eur"]
-        self._state["total_value_eur"] = round(total, 4)
-        self._state["total_pnl_eur"] = round(total - initial, 4)
-        self._state["total_pnl_pct"] = round((total - initial) / initial * 100, 4) if initial > 0 else 0
+        self._state["total_value_eur"] = round(equity, 4)
+        self._state["total_pnl_eur"] = round(equity - initial, 4)
+        self._state["total_pnl_pct"] = round((equity - initial) / initial * 100, 4) if initial > 0 else 0
         await self._save(self._state)
         return self._state

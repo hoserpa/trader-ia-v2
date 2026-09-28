@@ -263,7 +263,9 @@ class TradingEngine:
             if price:
                 prices[pair] = price
 
-        portfolio_state = await self.portfolio.update_valuations(prices)
+        portfolio_state = await self.portfolio.update_valuations(
+            prices, self.grid_strategy.open_positions_for_valuations()
+        )
         grid_state = self.grid_strategy.get_state()
 
         with SessionLocal() as db:
@@ -317,7 +319,9 @@ class TradingEngine:
             if price:
                 prices[pair] = price
 
-        state = await self.portfolio.update_valuations(prices)
+        state = await self.portfolio.update_valuations(
+            prices, self.grid_strategy.open_positions_for_valuations()
+        )
         now = time.time()
         value = state.get("total_value_eur", 0)
         if now - self._last_snapshot_time < 3600 and abs(value - self._last_snapshot_value) < 0.01:

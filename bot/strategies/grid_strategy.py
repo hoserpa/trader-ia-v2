@@ -104,6 +104,8 @@ class GridStrategy:
 
         await self._retrofit_short_unavailable()
 
+        await self._rebuild_cash_from_ledger()
+
         has_global = bool(self._global_state) and bool(self._global_state.get("started_at"))
         has_levels = any(self._state.get(p, {}).get("levels") for p in config.grid.pairs)
 
@@ -151,18 +153,20 @@ class GridStrategy:
         logger.info(f"Grid activo en {len(self._state)} pares")
 
     def _reconcile_with_portfolio(self):
-        """Sincroniza el PnL total reportado por el grid con el balance real del
+        """Sincroniza el PnL total reportado por el grid con el patrimonio real del
         portfolio (fuente de verdad de lo efectivamente acreditado).
 
-        El balance acumula el PnL neto de cada fill de forma persistente, mientras
-        que el acumulado del grid podía perderse en reinicios. Al alinear el total
-        del grid con (balance - capital inicial), el dashboard deja de mostrar dos
-        cifras de PnL contradictorias. Los fills posteriores incrementan este total
-        de forma coherente con el balance.
+        El patrimonio (total_value_eur = caja + posiciones abiertas) acumula el
+        PnL neto de cada fill de forma persistente, mientras que el acumulado del
+        grid podía perderse en reinicios. Al alinear el total del grid con
+        (patrimonio - capital inicial), el dashboard deja de mostrar dos cifras de
+        PnL contradictorias. Los fills posteriores incrementan este total de forma
+        coherente con el patrimonio.
         """
         port = self.portfolio.get()
         initial = port.get("initial_balance_eur", port.get("balance_eur", 0))
-        real_pnl = round(port.get("balance_eur", 0) - initial, 4)
+        equity = port.get("total_value_eur", port.get("balance_eur", 0))
+        real_pnl = round(equity - initial, 4)
         self._global_state["total_pnl_eur"] = real_pnl
         self._global_state.pop("real_pnl_eur", None)
 
@@ -637,12 +641,15 @@ class GridStrategy:
                     "reason": reason,
                 })
 
-            await self.portfolio.update_balance(pnl)
+            amount = level["amount"]
+            buy_in = level["side"].lower() == "buy"
+            leg_delta = (-amount * fill_price if buy_in else amount * fill_price) - fee_eur
+            await self.portfolio.update_balance(leg_delta)
             port = self.portfolio.get()
 
             initial = port.get("initial_balance_eur", port.get("balance_eur", 0))
-            new_total = round(port["balance_eur"], 4)
-            port["total_value_eur"] = new_total
+            new_total = self._equity_eur(port)
+            port["total_value_eur"] = round(new_total, 4)
             port["total_pnl_eur"] = round(new_total - initial, 4)
             port["total_pnl_pct"] = (
                 round((new_total - initial) / initial * 100, 4) if initial > 0 else 0
@@ -666,6 +673,63 @@ class GridStrategy:
             )
         except Exception as e:
             logger.warning(f"Grid {pair}: no se persistió fill: {e}")
+
+    def _equity_eur(self, port: dict) -> float:
+        """Patrimonio = caja + posiciones abiertas valoradas (long +, short -).
+
+        El balance ya debita/acredita el nocional de cada pierna; sumar el MTM
+        de los niveles abiertos reconstruye el patrimonio real (lo que mide el
+        drawdown), en lugar de confundir caja con valor total.
+        """
+        value = port.get("balance_eur", 0.0)
+        for pair, st in self._state.items():
+            px = st.get("current_price") or st.get("center_price") or 0
+            if not px:
+                continue
+            for lvl in st.get("levels", []):
+                if lvl.get("status") != "open":
+                    continue
+                value += lvl["amount"] * px if lvl["side"] == "buy" else -lvl["amount"] * px
+        return value
+
+    def open_positions_for_valuations(self) -> dict:
+        """Niveles abiertos por par, para valorar el patrimonio en el portfolio."""
+        return {
+            pair: [{"side": lvl["side"], "amount": lvl["amount"]}
+                   for lvl in st.get("levels", []) if lvl["status"] == "open"]
+            for pair, st in self._state.items()
+        }
+
+    async def _rebuild_cash_from_ledger(self) -> None:
+        """Reconstruye la caja desde el ledger de trades (regla de financiacion).
+
+        Migracion unica del cambio a funding: bajo la contabilidad antigua el
+        balance solo acumulaba PnL y el nocional de las piernas nunca se debito,
+        asi que al desplegar esto el balance estaria inflado mientras haya niveles
+        abiertos. La caja correcta es initial_balance + Σ deltas de cada pierna
+        (buy −amount*price−fee, sell +amount*price−fee), deducida directamente de
+        la BD (idempotente: sin divergencia el resultado coincide con el balance).
+        """
+        port = self.portfolio.get()
+        initial = port.get("initial_balance_eur", port.get("balance_eur", 0))
+        from database.init_db import SessionLocal
+        from database.models import Trade
+        db = SessionLocal()
+        try:
+            cash = 0.0
+            for side, amount, price, fee in db.query(
+                Trade.side, Trade.amount_crypto, Trade.price, Trade.fee_eur
+            ).all():
+                cash += (amount * price if str(side).lower() == "sell" else -amount * price) - fee
+            cash += initial
+        finally:
+            db.close()
+
+        expected = round(cash, 4)
+        current = round(port.get("balance_eur", initial), 4)
+        if abs(expected - current) > 0.0001:
+            await self.portfolio.update_balance(expected - current)
+            logger.info(f"Grid: caja reconciliada con el ledger: {current:.4f} -> {expected:.4f}")
 
     def _cleanup_filled_levels(self, pair: str):
         """Elimina filled levels antiguos para evitar crecimiento indefinido."""
@@ -731,10 +795,10 @@ class GridStrategy:
                 self._global_state.get("total_grid_trades", 0) + 1
             )
 
-            await self._persist_grid_fill(pair, close_level, current_price, pnl, fee_eur, reason="rebalance")
             level["status"] = "filled"
             level["filled_at"] = datetime.now(timezone.utc).isoformat()
             level["filled_price"] = current_price
+            await self._persist_grid_fill(pair, close_level, current_price, pnl, fee_eur, reason="rebalance")
             liquidated.append(
                 (level.get("id"), side, round(pnl, 4))
             )
