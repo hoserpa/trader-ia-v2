@@ -331,7 +331,11 @@ class GridStrategy:
         await self._check_global_stop_loss()
 
     async def _get_price(self, pair: str) -> Optional[float]:
-        """Obtiene precio actual desde Redis con check de staleness."""
+        """Obtiene precio actual desde Redis.
+
+        La frescura se garantiza con el TTL de `price:{pair}` (60s en el
+        collector): si la clave expira no hay precio y el grid salta el poll.
+        """
         raw = await self.redis.get(f"price:{pair}")
         if not raw:
             return None
@@ -343,20 +347,6 @@ class GridStrategy:
 
         if price <= 0:
             return None
-
-        price_key = f"price_ts:{pair}"
-        ts_raw = await self.redis.get(price_key)
-        if ts_raw:
-            try:
-                ts = float(ts_raw)
-                age = datetime.now(timezone.utc).timestamp() - ts
-                if age > config.grid.price_stale_sec:
-                    logger.warning(
-                        f"Grid {pair}: precio stale ({age:.0f}s > {config.grid.price_stale_sec}s), saltando"
-                    )
-                    return None
-            except (ValueError, TypeError):
-                pass
 
         return price
 
