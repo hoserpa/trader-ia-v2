@@ -104,7 +104,7 @@ class GridStrategy:
 
         await self._retrofit_short_unavailable()
 
-        await self._rebuild_cash_from_ledger()
+        await self._rebuild_balance_from_ledger()
 
         has_global = bool(self._global_state) and bool(self._global_state.get("started_at"))
         has_levels = any(self._state.get(p, {}).get("levels") for p in config.grid.pairs)
@@ -641,10 +641,7 @@ class GridStrategy:
                     "reason": reason,
                 })
 
-            amount = level["amount"]
-            buy_in = level["side"].lower() == "buy"
-            leg_delta = (-amount * fill_price if buy_in else amount * fill_price) - fee_eur
-            await self.portfolio.update_balance(leg_delta)
+            await self.portfolio.update_balance(pnl)
             port = self.portfolio.get()
 
             initial = port.get("initial_balance_eur", port.get("balance_eur", 0))
@@ -675,11 +672,10 @@ class GridStrategy:
             logger.warning(f"Grid {pair}: no se persistió fill: {e}")
 
     def _equity_eur(self, port: dict) -> float:
-        """Patrimonio = caja + posiciones abiertas valoradas (long +, short -).
+        """Patrimonio = PnL realizado + posiciones abiertas valoradas (long +, short −).
 
-        El balance ya debita/acredita el nocional de cada pierna; sumar el MTM
-        de los niveles abiertos reconstruye el patrimonio real (lo que mide el
-        drawdown), en lugar de confundir caja con valor total.
+        El balance (realizado) no incluye los niveles abiertos; sumar su MTM da el
+        patrimonio real, que es lo que mide el drawdown del objetivo (≤2%).
         """
         value = port.get("balance_eur", 0.0)
         for pair, st in self._state.items():
@@ -700,15 +696,16 @@ class GridStrategy:
             for pair, st in self._state.items()
         }
 
-    async def _rebuild_cash_from_ledger(self) -> None:
-        """Reconstruye la caja desde el ledger de trades (regla de financiacion).
+    async def _rebuild_balance_from_ledger(self) -> None:
+        """Reconstruye el balance desde el ledger de trades (PnL realizado).
 
-        Migracion unica del cambio a funding: bajo la contabilidad antigua el
-        balance solo acumulaba PnL y el nocional de las piernas nunca se debito,
-        asi que al desplegar esto el balance estaria inflado mientras haya niveles
-        abiertos. La caja correcta es initial_balance + Σ deltas de cada pierna
-        (buy −amount*price−fee, sell +amount*price−fee), deducida directamente de
-        la BD (idempotente: sin divergencia el resultado coincide con el balance).
+        El balance del demo es una cuenta de resultados, no una caja: cada fill
+        acredita el PnL neto (spread − comisiones), sin desplazar nocional. Los
+        contra-lados short son virtuales (sin margen, leverage 1), así que no
+        generan flotante de caja. El patrimonio real se valora aparte con MTM
+        (total_value_eur = balance + posiciones abiertas): ahí es donde se mide
+        el drawdown del objetivo. Reconstruir desde la BD es idempotente: sin
+        divergencia el resultado coincide con el balance actual.
         """
         port = self.portfolio.get()
         initial = port.get("initial_balance_eur", port.get("balance_eur", 0))
@@ -716,20 +713,17 @@ class GridStrategy:
         from database.models import Trade
         db = SessionLocal()
         try:
-            cash = 0.0
-            for side, amount, price, fee in db.query(
-                Trade.side, Trade.amount_crypto, Trade.price, Trade.fee_eur
-            ).all():
-                cash += (amount * price if str(side).lower() == "sell" else -amount * price) - fee
-            cash += initial
+            balance = initial
+            for pnl, fee in db.query(Trade.pnl_eur, Trade.fee_eur).all():
+                balance += (pnl if pnl is not None else -fee)
         finally:
             db.close()
 
-        expected = round(cash, 4)
+        expected = round(balance, 4)
         current = round(port.get("balance_eur", initial), 4)
         if abs(expected - current) > 0.0001:
             await self.portfolio.update_balance(expected - current)
-            logger.info(f"Grid: caja reconciliada con el ledger: {current:.4f} -> {expected:.4f}")
+            logger.info(f"Grid: balance reconciliado con el ledger: {current:.4f} -> {expected:.4f}")
 
     def _cleanup_filled_levels(self, pair: str):
         """Elimina filled levels antiguos para evitar crecimiento indefinido."""

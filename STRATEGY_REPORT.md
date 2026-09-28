@@ -405,6 +405,8 @@ Con la config de producción: 15 niveles × 2,00 € × 3 pares = **90 € de no
 
 **Verificación**: 7 tests nuevos sobre financiación de piernas, patrimonio con MTM (long/short) y migración desde el ledger (`test_grid_funding.py`), más actualización de `test_grid_persist_atomic.py`; **45 passed** en local. A partir de aquí, +2/5% mensual y drawdown deben medirse sobre **patrimonio**.
 
+**Corrección posterior (28 Sep, deployment)**: financiar el nocional completo en el demo **infló el dashboard** (+58%): al acreditar el importe de los contra-lados short virtuales (sin margen, leverage 1) el balance saltó de ~103 € a 136 €, y el patrimonio mostró un flotante ficticio de +23 €. El modelo correto para el demo es el ya documentado en AGENTS.md: **el balance es PnL realizado** (cada fill acredita `spread − comisiones`, sin desplazar nocional), y lo que sí aporta la corrección es que `total_value_eur` valora las abiertas con MTM. Se revirtió el movimiento de nocional en `_persist_grid_fill` (se vuelve a acreditar `pnl`), `_rebuild_cash_from_ledger` pasó a `_rebuild_balance_from_ledger` (balance = `initial + Σ pnl_eur`, idempotente; los `pnl_eur` nulos se tratan como `−fee`), y el dashboard etiqueta la tarjeta "Balance libre" como **"PnL realizado"**. El patrimonio (con MTM) sigue siendo la métrica del objetivo.
+
 ### 5.3 [ALTO — confirmado] `value_eur` omite el leverage
 
 El nocional creado es `tamaño × leverage`, pero `value_eur` graba `tamaño` sin leverage. `value_eur` es la base de `pnl_pct` en todo el sistema. Con `LEVERAGE=2` (config E1, que produjo el 102% del PnL), todos los porcentajes mostrados eran **2× el retorno real**.

@@ -70,8 +70,8 @@ async def get_portfolio():
     data["positions"] = open_positions
     data["open_positions"] = len(open_positions)
     invested_in_open = sum(op.get("amount_eur_invested", 0) for op in open_positions.values())
-    # balance_eur ya es caja liquida (cada pierna debita/acredita el nocional),
-    # de modo que el balance libre coincide con la caja sin restar lo desplegado.
+    # balance_eur = PnL realizado (los shorts virtuales no generan caja con nocional);
+    # el patrimonio real se valora con total_value_eur (balance + MTM de abiertas).
     data["free_balance_eur"] = round(data.get("balance_eur", 0), 4)
     data["invested_open_eur"] = round(invested_in_open, 4)
     return data
