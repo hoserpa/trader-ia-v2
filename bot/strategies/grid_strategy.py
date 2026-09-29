@@ -113,6 +113,130 @@ class GridStrategy:
             for pair in self._state:
                 await self._save_pair_state(pair)
 
+    def _short_covers(self, pair: str) -> list:
+        """Contra-ordenes de recompra abiertas: representan shorts vivas."""
+        return [
+            l for l in self._state[pair]["levels"]
+            if l["side"] == "buy" and isinstance(l.get("id"), str) and l["status"] == "open"
+        ]
+
+    def margin_health(self, current_prices: dict) -> dict:
+        """Salud de margen de la cuenta (cross margin como Kraken).
+
+        used_margin = Σ notional/L de las shorts abiertas; equity = balance
+        realizado + no realizado de todas las piernas. margin_level = equity /
+        used_margin × 100. Sin shorts abiertas, margin_level es None.
+        """
+        lev = max(config.exchange.margin_leverage, 1)
+        used_margin = 0.0
+        unrealized = 0.0
+        for pair, st in self._state.items():
+            px = current_prices.get(pair) or st.get("current_price") or st.get("center_price") or 0
+            if not px:
+                continue
+            for lvl in st.get("levels", []):
+                if lvl.get("status") != "open" or not isinstance(lvl.get("id"), str):
+                    continue
+                entry = lvl.get("entry_price") or lvl["price"]
+                if lvl["side"] == "buy":
+                    used_margin += entry * lvl["amount"] / lev
+                    unrealized += (entry - px) * lvl["amount"]
+                else:
+                    unrealized += (px - entry) * lvl["amount"]
+        balance = 0.0
+        try:
+            balance = self.portfolio.get().get("balance_eur", 0.0)
+        except Exception:
+            pass
+        equity = balance + unrealized
+        level_pct = (equity / used_margin * 100.0) if used_margin > 0 else None
+        return {
+            "used_margin_eur": round(used_margin, 4),
+            "equity_eur": round(equity, 4),
+            "unrealized_eur": round(unrealized, 4),
+            "margin_level_pct": round(level_pct, 2) if level_pct is not None else None,
+        }
+
+    def _margin_warned(self) -> bool:
+        return bool(self._global_state.get("margin_call_warned", False))
+
+    def _mark_margin_warned(self, warned: bool = True) -> None:
+        self._global_state["margin_call_warned"] = warned
+
+    async def _check_short_liquidation(self, pair: str, current_price: float) -> int:
+        """Fiel a Kraken: si margin_level <= margin_stop (40%) liquida las shorts.
+
+        El nivel de margen se mide sobre toda la cuenta; la liquidación (orden de
+        mercado) cierra al precio actual las contra-ordenes BUY del par en poll,
+        debitando el PnL realizado mas la comision de liquidacion (2-3%).
+        """
+        covers = self._short_covers(pair)
+        if not covers:
+            return 0
+        health = self.margin_health({pair: current_price})
+        level_pct = health["margin_level_pct"]
+        if level_pct is None:
+            return 0
+        if level_pct > config.grid.margin_call_pct * 100:
+            self._mark_margin_warned(False)
+            return 0
+        if level_pct > config.grid.margin_stop_pct * 100:
+            if not self._margin_warned():
+                self._mark_margin_warned()
+                logger.warning(
+                    f"MARGIN CALL: margin_level={level_pct:.1f}% <= "
+                    f"{config.grid.margin_call_pct:.0%} (leverage "
+                    f"{config.exchange.margin_leverage}x, used={health['used_margin_eur']:.2f}e) "
+                    f"· shorts de {pair} en riesgo"
+                )
+            return 0
+        logger.warning(
+            f"LIQUIDACION de margen ({pair}): margin_level={level_pct:.1f}% <= "
+            f"{config.grid.margin_stop_pct:.0%} (used={health['used_margin_eur']:.2f}e)"
+        )
+        n = 0
+        for lvl in list(covers):
+            n += await self._liquidate_short(pair, lvl, current_price)
+        self._mark_margin_warned(False)
+        return n
+
+    async def _liquidate_short(self, pair: str, lvl: dict, liq_price: float) -> int:
+        """Cierra una short por liquidacion de margen a precio de mercado."""
+        fee_rate = self.broker.fee_rate if self.broker else config.exchange.maker_fee
+        entry = lvl.get("entry_price") or lvl["price"]
+        fee_eur = liq_price * lvl["amount"] * fee_rate
+        liq_fee = round(entry * lvl["amount"] * config.grid.margin_liq_fee_pct, 4)
+        pnl = (entry - liq_price) * lvl["amount"] - fee_eur - liq_fee
+        close_level = {
+            "id": f"{lvl['id']}_margincall",
+            "side": "buy",
+            "amount": lvl["amount"],
+            "entry_price": entry,
+            "cycle_id": lvl.get("cycle_id") or str(uuid4()),
+            "fee_eur": fee_eur,
+            "margin_rollover_eur": 0.0,
+        }
+        lvl["status"] = "filled"
+        lvl["filled_at"] = datetime.now(timezone.utc).isoformat()
+        lvl["filled_price"] = liq_price
+
+        state = self._state[pair]
+        state["pnl_eur"] = state.get("pnl_eur", 0) + pnl
+        state["margin_fees_eur"] = state.get("margin_fees_eur", 0) + liq_fee
+        state["total_grid_trades"] = state.get("total_grid_trades", 0) + 1
+        self._global_state["total_pnl_eur"] = self._global_state.get("total_pnl_eur", 0) + pnl
+        self._global_state["total_margin_fees_eur"] = (
+            self._global_state.get("total_margin_fees_eur", 0) + liq_fee
+        )
+        await self._persist_grid_fill(pair, close_level, liq_price, pnl, fee_eur, reason="margin_call")
+        await self.portfolio.remove_position(pair)
+        await self._save_pair_state(pair)
+        logger.warning(
+            f"Grid {pair}: short {round(entry, 2)}e liquidada @ {liq_price:.2f}e "
+            f"({pnl:+.4f}e, liq_fee={liq_fee:.4f}e)"
+        )
+        return 1
+
     async def start(self):
         """Inicia grid en todos los pares configurados.
 
@@ -349,6 +473,7 @@ class GridStrategy:
                     self._cleanup_filled_levels(pair)
                     await self._save_pair_state(pair)
 
+                await self._check_short_liquidation(pair, current_price)
                 await self._check_rebalance(pair, current_price)
 
             except Exception as e:
@@ -1038,6 +1163,15 @@ class GridStrategy:
             ),
             "total_grid_trades": self._global_state.get("total_grid_trades", 0),
             "started_at": self._global_state.get("started_at", ""),
+            "margin": self.margin_health(
+                {p: st.get("current_price", 0) for p, st in self._state.items()}
+            ),
+            "margin_limits": {
+                "call_pct": config.grid.margin_call_pct,
+                "stop_pct": config.grid.margin_stop_pct,
+                "leverage": config.exchange.margin_leverage,
+                "liq_fee_pct": config.grid.margin_liq_fee_pct,
+            },
             "config": {
                 "leverage": config.grid.leverage,
                 "levels_per_pair": config.grid.levels_per_pair,

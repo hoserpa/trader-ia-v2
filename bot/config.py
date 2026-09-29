@@ -135,6 +135,9 @@ class GridConfig:
     margin_open_fee_pct: float = field(default_factory=lambda: float(os.getenv("GRID_MARGIN_OPEN_FEE_PCT", "0.0002")))
     margin_rollover_pct: float = field(default_factory=lambda: float(os.getenv("GRID_MARGIN_ROLLOVER_PCT", "0.00025")))
     margin_rollover_hours: int = field(default_factory=lambda: int(os.getenv("GRID_MARGIN_ROLLOVER_HOURS", "4")))
+    margin_call_pct: float = field(default_factory=lambda: float(os.getenv("GRID_MARGIN_CALL_PCT", "0.80")))
+    margin_stop_pct: float = field(default_factory=lambda: float(os.getenv("GRID_MARGIN_STOP_PCT", "0.40")))
+    margin_liq_fee_pct: float = field(default_factory=lambda: float(os.getenv("GRID_MARGIN_LIQ_FEE_PCT", "0.03")))
 
 
 @dataclass
@@ -211,6 +214,12 @@ class AppConfig:
             raise ValueError(f"GRID_MARGIN_ROLLOVER_PCT inválido: {self.grid.margin_rollover_pct}. Debe estar entre 0 y 0.05 por periodo (Kraken: 0.01-0.05%/4h).")
         if self.grid.margin_rollover_hours <= 0:
             raise ValueError(f"GRID_MARGIN_ROLLOVER_HOURS inválido: {self.grid.margin_rollover_hours}. Debe ser > 0.")
+        if not (0 < self.grid.margin_call_pct < 1):
+            raise ValueError(f"GRID_MARGIN_CALL_PCT inválido: {self.grid.margin_call_pct}. Debe estar entre 0 y 1 (Kraken: 0.80).")
+        if not (0 < self.grid.margin_stop_pct <= self.grid.margin_call_pct):
+            raise ValueError(f"GRID_MARGIN_STOP_PCT inválido: {self.grid.margin_stop_pct}. Debe estar entre 0 y margin_call (Kraken: 0.40).")
+        if not (0 <= self.grid.margin_liq_fee_pct <= 0.10):
+            raise ValueError(f"GRID_MARGIN_LIQ_FEE_PCT inválido: {self.grid.margin_liq_fee_pct}. Debe estar entre 0 y 0.10 (Kraken liquida con comision 2-3%).")
         if not (self.exchange.margin_leverage >= 1):
             raise ValueError(f"EXCHANGE_MARGIN_LEVERAGE inválido: {self.exchange.margin_leverage}. Debe ser >= 1.")
         if self.exchange.margin_mode not in ("isolated", "cross"):
