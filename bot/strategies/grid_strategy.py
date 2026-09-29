@@ -893,12 +893,14 @@ class GridStrategy:
         """Reconstruye el balance desde el ledger de trades (PnL realizado).
 
         El balance del demo es una cuenta de resultados, no una caja: cada fill
-        acredita el PnL neto (spread − comisiones), sin desplazar nocional. Los
-        contra-lados short son virtuales (sin margen, leverage 1), así que no
-        generan flotante de caja. El patrimonio real se valora aparte con MTM
-        (total_value_eur = balance + posiciones abiertas): ahí es donde se mide
-        el drawdown del objetivo. Reconstruir desde la BD es idempotente: sin
-        divergencia el resultado coincide con el balance actual.
+        acredita el PnL neto (spread − comisiones), sin desplazar nocional. La
+        apertura de un short debita trade-fee + margin_open; como esa pierna se
+        graba con pnl None (es apertura, no ciclo), el rebuild la reconstruye
+        con -fee - margin_open para que coincida con lo acreditado en vivo. El
+        patrimonio real se valora aparte con MTM (total_value_eur = balance +
+        posiciones abiertas): ahí es donde se mide el drawdown del objetivo.
+        Reconstruir desde la BD es idempotente: sin divergencia el resultado
+        coincide con el balance actual.
         """
         port = self.portfolio.get()
         initial = port.get("initial_balance_eur", port.get("balance_eur", 0))
@@ -907,8 +909,17 @@ class GridStrategy:
         db = SessionLocal()
         try:
             balance = initial
-            for pnl, fee in db.query(Trade.pnl_eur, Trade.fee_eur).all():
-                balance += (pnl if pnl is not None else -fee)
+            for side, pnl, fee, amount, price in db.query(
+                Trade.side, Trade.pnl_eur, Trade.fee_eur, Trade.amount_crypto, Trade.price
+            ).all():
+                if pnl is not None:
+                    balance += pnl
+                else:
+                    balance -= fee
+                    if side == "SELL":
+                        balance -= margin_short_open(
+                            price * amount, config.grid.margin_open_fee_pct
+                        )
         finally:
             db.close()
 
