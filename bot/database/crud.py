@@ -313,6 +313,8 @@ def get_operations(db: Session, limit: int = 50, offset: int = 0) -> list[dict]:
     rebalance y stop-loss). El PnL de cada fila es neto de las dos comisiones
     del ciclo y cuadra con el balance. Los ciclos abiertos (sin cierre) se
     devuelven como fila abierta con su inversion.
+    Ordenadas por fecha de cierre (exit_timestamp) descendente; los ciclos aún
+    abiertos caen arriba por su fecha de apertura.
     """
     trades = (
         db.query(Trade)
@@ -322,7 +324,7 @@ def get_operations(db: Session, limit: int = 50, offset: int = 0) -> list[dict]:
     closed_rows, open_rows = _build_round_trips(trades)
     rows = sorted(
         closed_rows + open_rows,
-        key=lambda r: r["entry_timestamp"],
+        key=lambda r: r["exit_timestamp"] or r["entry_timestamp"],
         reverse=True,
     )
     return rows[offset:offset + limit]
