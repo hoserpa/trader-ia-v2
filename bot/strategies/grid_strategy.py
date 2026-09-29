@@ -15,6 +15,28 @@ from config import config
 from trading.portfolio import Portfolio
 from notifications.telegram import _format_duration_between
 
+
+def _hours_between(start_ts: str, end_ts: str) -> float:
+    """Horas transcurridas entre dos timestamps ISO (0 si no hay datos)."""
+    if not start_ts or not end_ts:
+        return 0.0
+    try:
+        start = datetime.fromisoformat(start_ts.replace("Z", "+00:00"))
+        end = datetime.fromisoformat(end_ts.replace("Z", "+00:00"))
+        return max(0.0, (end - start).total_seconds() / 3600)
+    except Exception:
+        return 0.0
+
+
+def margin_short_open(notional_eur: float, rate: float) -> float:
+    """Fee de apertura de margen sobre el importe prestado (Kraken 0.01-0.05%)."""
+    return round(notional_eur * rate, 4)
+
+
+def margin_short_rollover(notional_eur: float, elapsed_hours: float, rate: float, per_hours: float = 4.0) -> float:
+    """Rollover acumulado de margen, proporcional al tiempo abierto (Kraken cobra cada 4h)."""
+    return round(notional_eur * rate * (elapsed_hours / per_hours), 4)
+
 REDIS_GRID_STATE_KEY = "grid:state:{pair}"
 REDIS_GRID_GLOBAL_KEY = "grid:global"
 
@@ -419,6 +441,20 @@ class GridStrategy:
             capital_per_pair / n_levels, grid_cfg.min_lot_value_eur
         )
 
+        info = self._margin_support.get(pair, {})
+        ordermin = info.get("ordermin")
+        costmin = info.get("costmin")
+        min_eur = (ordermin or 0) * current_price if ordermin else 0.0
+        if costmin:
+            min_eur = max(min_eur, costmin)
+        if grid_cfg.min_lot_value_eur + 1e-9 < min_eur:
+            logger.warning(
+                f"Grid {pair}: GRID_MIN_LOT_VALUE_EUR={grid_cfg.min_lot_value_eur:.2f}e "
+                f"< minimo real Kraken {min_eur:.2f}e (ordermin={ordermin}, "
+                f"costmin={costmin}). En real Kraken rechazaria el lote; "
+                f"sube GRID_MIN_LOT_VALUE_EUR a >= {min_eur:.1f}e."
+            )
+
         short_ok = self._pair_short_ok(pair)
         levels = []
         for i in range(n_levels):
@@ -464,6 +500,7 @@ class GridStrategy:
             "pnl_eur": 0.0,
             "pnl_pct": 0.0,
             "fees_eur": 0.0,
+            "margin_fees_eur": 0.0,
             "total_grid_trades": 0,
             "started_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -511,14 +548,22 @@ class GridStrategy:
         fee_eur = fill_price * amount * fee_rate
         level["fee_eur"] = fee_eur
         pnl = 0.0
+        margin_cost_eur = 0.0
         counter_price = None
 
         if level["side"] == "buy":
             sell_price = level["price"] + spacing
             counter_price = sell_price
             is_close = isinstance(level.get("id"), str)
+            if is_close:
+                margin_cost_eur = margin_short_rollover(
+                    entry_price * amount,
+                    _hours_between(level.get("opened_at"), level["filled_at"]),
+                    config.grid.margin_rollover_pct,
+                    config.grid.margin_rollover_hours,
+                )
             pnl = (
-                (entry_price - fill_price) * amount - fee_eur
+                (entry_price - fill_price) * amount - fee_eur - margin_cost_eur
                 if is_close
                 else -fee_eur
             )
@@ -549,10 +594,12 @@ class GridStrategy:
             buy_price = level["price"] - spacing
             counter_price = buy_price
             is_close = isinstance(level.get("id"), str)
+            if not is_close:
+                margin_cost_eur = margin_short_open(fill_price * amount, config.grid.margin_open_fee_pct)
             pnl = (
                 (fill_price - entry_price) * amount - fee_eur
                 if is_close
-                else -fee_eur
+                else -fee_eur - margin_cost_eur
             )
             new_level = {
                 "id": f"{level['id']}_buy_{len(self._state[pair]['levels'])}",
@@ -567,6 +614,7 @@ class GridStrategy:
                 "filled_price": None,
                 "opened_at": datetime.now(timezone.utc).isoformat(),
                 "fee_eur_opening": fee_eur,
+                "margin_open_eur": margin_cost_eur,
             }
             self._state[pair]["levels"].append(new_level)
             logger.info(
@@ -578,8 +626,11 @@ class GridStrategy:
             else:
                 await self.portfolio.remove_position(pair)
 
+        level["margin_fees_eur"] = margin_cost_eur
+
         self._state[pair]["pnl_eur"] += pnl
         self._state[pair]["fees_eur"] = self._state[pair].get("fees_eur", 0) + fee_eur
+        self._state[pair]["margin_fees_eur"] = self._state[pair].get("margin_fees_eur", 0) + margin_cost_eur
         self._state[pair]["total_grid_trades"] += 1
 
         total_capital_used = max(
@@ -596,6 +647,9 @@ class GridStrategy:
         self._global_state["total_fees_eur"] = (
             self._global_state.get("total_fees_eur", 0) + fee_eur
         )
+        self._global_state["total_margin_fees_eur"] = (
+            self._global_state.get("total_margin_fees_eur", 0) + margin_cost_eur
+        )
         self._global_state["total_grid_trades"] = (
             self._global_state.get("total_grid_trades", 0) + 1
         )
@@ -607,7 +661,10 @@ class GridStrategy:
         if self.telegram:
             is_cycle_close = isinstance(level.get("id"), str)
             if is_cycle_close:
-                fees_total = fee_eur + level.get("fee_eur_opening", 0)
+                fees_total = (
+                    fee_eur + level.get("fee_eur_opening", 0)
+                    + level.get("margin_open_eur", 0) + level.get("margin_fees_eur", 0)
+                )
                 duration = _format_duration_between(
                     level.get("opened_at", ""), level.get("filled_at", "")
                 )

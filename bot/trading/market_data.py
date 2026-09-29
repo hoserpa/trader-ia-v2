@@ -24,6 +24,16 @@ def _parse_leverage(raw) -> Optional[int]:
         return None
 
 
+def _parse_min(raw) -> Optional[float]:
+    """Extrae un minimo numerico (ordermin/costmin) de un valor de Kraken."""
+    if raw is None:
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
+
+
 def margin_support_from_markets(markets: dict, pairs: list) -> dict:
     """Deriva el soporte de margen por par desde los markets de ccxt.
 
@@ -36,7 +46,8 @@ def margin_support_from_markets(markets: dict, pairs: list) -> dict:
 
     Returns:
         dict {pair: {"symbol": str, "in_markets": bool, "long_leverage": int|None,
-                      "short_leverage": int|None, "margin_ok": bool, "short_ok": bool}}
+                      "short_leverage": int|None, "margin_ok": bool, "short_ok": bool,
+                      "ordermin": float|None, "costmin": float|None}}
     """
     result = {}
     for pair in pairs:
@@ -49,6 +60,8 @@ def margin_support_from_markets(markets: dict, pairs: list) -> dict:
                 "short_leverage": None,
                 "margin_ok": False,
                 "short_ok": False,
+                "ordermin": None,
+                "costmin": None,
             }
             continue
         info = market.get("info", {})
@@ -61,6 +74,8 @@ def margin_support_from_markets(markets: dict, pairs: list) -> dict:
             "short_leverage": short_lev,
             "margin_ok": bool(long_lev or short_lev),
             "short_ok": bool(short_lev and short_lev > 0),
+            "ordermin": _parse_min(info.get("ordermin")),
+            "costmin": _parse_min(info.get("costmin")),
         }
     return result
 

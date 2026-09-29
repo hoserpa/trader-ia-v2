@@ -143,13 +143,10 @@ Bidireccional, confirmado activo en los 3 pares (`short_supported: true`).
 
 **El lado corto es un drag**: 88 ciclos (57% del total) para −0,20 € netos. Combinado con §4.5, **8 de los 10 ciclos largos son aperturas SELL sobre SOL**, y 3 de los 5 eventos de rebalanceo liquidaron contra-órdenes SELL: el lado corto es el principal generador de pérdidas.
 
-> **Advertencia de replicabilidad (verificada 28 Sep 2026)**: el short del demo es un contra-lado virtual **sin coste y sin apalancamiento**. En real, para cortar en Kraken hay que usar **margen spot (Kraken Pro, venue international sí lo ofrece)**, y eso cambia el modelo:
-> - **Mínimo leverage 2 para margen**: no existe un short a leverage 1; se pide prestada la moneda base (2x+).
-> - **Opening fee** 0,01–0,05% del importe extendido + **rollover cada 4 h** a 0,01–0,05% (la tasa se fija al ejecutar). Con ciclos de 20–55 h son ~5–14 rollovers por posición corta → un drag por ciclo que el demo **no modela**.
-> - **Liquidación**: `margin_call=80`, `margin_stop=40` (AssetPairs) + comisión de liquidación (2–3%).
-> - El demo tampoco valida el riesgo de apalancamiento de la pata corta frente a la regla "leverage 1" del objetivo.
-> Además, la atribución "el short pierde" está **confundida con la tendencia** — SOL subió ~25% en el periodo, así que el lado en contra arrastró; en un mes bajista el long sería el que sufre. Los números por lado solo valen dentro de ese régimen.
-> El lado BUY del demo **sí** replica en spot real (compra con EUR, cierre con venta de inventario), salvo por el `ordermin` (ver §7.2).
+> **Modelo de margen del corto (implementado 28 Sep 2026)**: el short del demo replica hoy los costes reales de margen de Kraken Pro — **opening fee** `GRID_MARGIN_OPEN_FEE_PCT` (0,02% del importe prestado al abrir) + **rollover** `GRID_MARGIN_ROLLOVER_PCT` (0,025%) proporcional al tiempo abierto en tramos de `GRID_MARGIN_ROLLOVER_HOURS` (4 h). Ambos debitan del PnL realizado y se acumulan en `margin_fees_eur` por par.
+> **Sigue sin modelarse la liquidación** (`margin_call=80`/`margin_stop=40` + comisión de liquidación 2–3%) ni la garantía de leverage 2 del margen: en un short muy desfavorable el demo acumula rollover pero nunca pierde la posición por margin call. Verificar ambos antes de capital real.
+> La atribución "el short pierde" del periodo medido está **confundida con la tendencia** — SOL subió ~25% en el periodo, así que el lado en contra arrastró; en un mes bajista el long sería el que sufre. Los números por lado solo valen dentro de ese régimen.
+> El lado BUY del demo **sí** replica en spot real (compra con EUR, cierre con venta de inventario) y el lote ya cubre `ordermin` (ver §7.2).
 
 ---
 
@@ -163,7 +160,7 @@ Bidireccional, confirmado activo en los 3 pares (`short_supported: true`).
 | `GRID_PAIRS` | `BTC/EUR,ETH/EUR,SOL/EUR` | 3 pares | no |
 | `GRID_LEVERAGE` | `1` | **1** | no |
 | `GRID_LEVELS` | `15` | **15** | no |
-| `GRID_MIN_LOT_VALUE_EUR` | `5` | **2** | sí (>0) |
+| `GRID_MIN_LOT_VALUE_EUR` | `5` | **8** | sí (>0) |
 | `GRID_CAPITAL_PCT` | `0.90` | 0.90 | no |
 | `GRID_RANGE_PCT` | `0.05` | **0.08** | no |
 | `GRID_REBALANCE_THRESHOLD` | `0.08` | 0.08 | no |
@@ -172,6 +169,12 @@ Bidireccional, confirmado activo en los 3 pares (`short_supported: true`).
 | `GRID_ATR_ADAPTIVE` | `true` | false | no |
 | `GRID_MAX_LEVELS` | `15` | 15 | no |
 | `GRID_PRICE_STALE_SEC` | `300` | 300 | **inoperante** |
+| `GRID_MARGIN_OPEN_FEE_PCT` | `0.0002` | 0.0002 | sí (0–5%) |
+| `GRID_MARGIN_ROLLOVER_PCT` | `0.00025` | 0.00025 | sí (0–5%) |
+| `GRID_MARGIN_ROLLOVER_HOURS` | `4` | 4 | sí (>0) |
+| `DEMO_INITIAL_BALANCE` | — | **250 €** (tras reset 28 Sep) | sí |
+
+*Min-lot y margen recalculados tras el reset del 28 Sep 2026 (lote ≥ `ordermin` de Kraken y costes de margen del corto modelados); el periodo medido E1–E3 (§3.2) usó min-lot 2 € y shorts sin margen.*
 
 **Variables sin validación capaces de degenerar el bot:**
 - `GRID_LEVERAGE=0` → todos los PnL valen 0, el grid sigue "funcionando". `<0` → acredita PnL positivo en cada fill.
@@ -516,14 +519,9 @@ El rebalanceo consume ~40% del PnL del grid (5 eventos, −4,40 €) con 0,19 ev
 
 1. ~~**Decidir el modelo de capital** (§5.2)~~ — **HECHO (`4c13c32`)**: el balance financia las posiciones y el objetivo (+2/5% mensual, drawdown ≤2%) se mide sobre **patrimonio** (caja + MTM). Pendiente de despliegue en el demo (con la migración idempotente desde el ledger en el arranque).
 2. **Alinear el `.env` del repo con producción** (§3.3). Una línea, elimina la confusión más cara del repositorio.
-3. **⚠️ Lado short no replicable en real con la regla leverage=1 (nuevo, 28 Sep 2026)**: el short del demo es un contra-lado virtual sin coste ni apalancamiento. En real, cortar exige **margen spot de Kraken Pro** con **leverage mínimo 2** (préstamo de la base), **opening fee 0,01–0,05%** y **rollover 0,01–0,05% cada 4 h** (con ciclos de 20–55 h → ~5–14 rollovers por pata corta), plus riesgo de liquidación (`margin_stop=40`). El demo no modela nada de eso. **Decisión necesaria**: (a) grid long-only en real (consistente con leverage 1: compras con EUR, ventas solo cierran inventario — el lado BUY sí replica, solo falta `ordermin`, punto 4), o (b) aceptar margen (leverage mínimo 2 + opening fee + rollover) y **modelar su coste y riesgo en el demo** antes de validar la salida a real — opción (c) del §2.6, que requiere añadir apertura de margen, rollover por 4 h y liquidación al ledger del demo.
-4. **⚠️ Lote mínimo por debajo del mínimo de Kraken (nuevo, verificado vía AssetPairs 28 Sep 2026)**: `GRID_MIN_LOT_VALUE_EUR=2` en spot real es rechazado (Kraken exige cantidad mínima en la moneda base, no solo `costmin`):
-   - BTC: `ordermin=0.00005` → **3,68 €** al precio actual (el lote demo de 2 € ≈ 0,000027 BTC)
-   - ETH: `ordermin=0.001` → **2,36 €**
-   - SOL: `ordermin=0.06` → **6,26 €**
-   
-   El lote de 2 € **falla en los tres pares** (SOL es el más duro). Config real replicable necesita `GRID_MIN_LOT_VALUE_EUR ≥ 6,5 €` (SOL manda) o reducir pares/niveles; eso cambia el capital y el spacing respecto al demo actual. Verificar `ordermin`/`costmin` en `AssetPairs` antes de desplegar.
-5. **Acumular 30 días con la config actual sin cambios.** E3 lleva 9 días. Los 3 cambios de configuración invalidaron 26 días de histórico.
+3. **✅ Lado short ajustado a la realidad de Kraken (HECHA, 28 Sep 2026)**: el demo modela el margen del corto (opción (b)) — **opening fee** `GRID_MARGIN_OPEN_FEE_PCT` (0,02% del importe prestado al abrir) y **rollover** `GRID_MARGIN_ROLLOVER_PCT` (0,025%) proporcional al tiempo abierto en tramos de `GRID_MARGIN_ROLLOVER_HOURS` (4 h). El PnL del short ahora descuenta ambos costes y se acumulan en `margin_fees_eur`. **Sigue sin modelar la liquidación** (`margin_call=80/margin_stop=40`, leverage mín. 2 del margen): en un short desfavorable el demo solo acumula rollover, nunca pierde la posición por margin call. Verificar antes de capital real.
+4. **✅ Lote mínimo alineado con Kraken (HECHA, 28 Sep 2026)**: `GRID_MIN_LOT_VALUE_EUR=8` (SOL manda: 0,06 SOL ≈ 6,2-7,8 € según precio) y validación al arrancar de cada par contra `ordermin×precio` y `costmin` de AssetPairs (datos internos en `_margin_support`); si el lote quedara por debajo, se loguea un warning de que Kraken rechazaría el lote. La config demo es ahora desplegable en real (con `DEMO_INITIAL_BALANCE` 250 € para financiar 3 pares × 8 niveles de compra × 8 €).
+5. **Acumular 30 días con la config actual sin cambios.** El contador de salida a real se **reinició el 28 Sep 2026** (reset completo con contabilidad corregida: balance = PnL realizado, patrimonio = realizado + MTM vs entrada; la config de margen/lote invalidó el periodo previo a propósito).
 6. **Instrumentar el drawdown y el nº de rebalanceos como métricas de primera clase** (§7.1).
 
 ### 7.3 Alta prioridad

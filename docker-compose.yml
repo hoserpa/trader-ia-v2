@@ -35,6 +35,9 @@ services:
       - .env
     extra_hosts:
       - "redis:host-gateway"
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     depends_on:
       redis:
         condition: service_healthy

@@ -91,9 +91,13 @@ GRID_ENABLED=true
 GRID_PAIRS=BTC/EUR,ETH/EUR,SOL/EUR
 GRID_LEVERAGE=1          # realista: 1× (2-5%/mes)
 GRID_LEVELS=15           # niveles por par (mas niveles -> mas trades)
-GRID_MIN_LOT_VALUE_EUR=2 # capital 100% desplegado (15×2=30€/par)
-GRID_RANGE_PCT=0.08      # rango total 8% (spacing ≈ rango/(n-1): 15 niveleñes → 1.14% > 2×fee 0.52%)
+GRID_MIN_LOT_VALUE_EUR=8 # >= ordermin real (SOL 0.06 SOL manda); Kraken rechaza lotes menores
+GRID_RANGE_PCT=0.08      # rango total 8% (spacing ≈ rango/(n-1): 15 niveles → 1.14% > 2×fee 0.52%)
 GRID_CAPITAL_PCT=0.90
+# Margen pata corta (fiel a Kraken): opening fee del importe prestado + rollover por 4h
+GRID_MARGIN_OPEN_FEE_PCT=0.0002
+GRID_MARGIN_ROLLOVER_PCT=0.00025
+GRID_MARGIN_ROLLOVER_HOURS=4
 GRID_REBALANCE_THRESHOLD=0.08
 GRID_STOP_LOSS_PCT=0.05
 GRID_POLL_INTERVAL=15
@@ -159,9 +163,11 @@ docker compose ps
 ## Grid Strategy (referencia rápida)
 
 - **Engine**: `bot/trading/engine.py` - bucle de monitoreo y coordinación; reconcilia el PnL total con el balance real del portfolio (BD como fuente de verdad), regenera snapshots con throttle (1/hora o cambio >0.01), restaura posiciones abiertas al reiniciar.
-- **Grid**: `bot/strategies/grid_strategy.py` - 3 pares, 15 niveles/par, rango 8%, spacing ~1.14% (margen 0.6pp > suelo 2×fee 0.52%), leverage 1, capital 90%, min-lot 2€, stop-loss 5%, poll 15s, ATR-adaptive desactivado.
-- **Bidireccional en demo**: el grid opera en ambos lados (compra abajo, vende arriba). `_pair_short_ok` en demo devuelve `broker.has_short_support` directamente (el check de `EXCHANGE_ALLOW_SHORT` solo aplica en modo real), así que abre shorts simulados si la API los soporta. Las posiciones "short" del dashboard son los contra-lados pendientes de recomprar (sin margen, leverage 1).
-- **Fees**: el grid calcula el PnL neto de cada fill con `broker.fee_rate` (maker 0.16% en demo; si se activara modo real usaría taker 0.26%, conservador). Cada fill guarda su `fee_eur`; el balance acredita `pnl` neto por pierna y descuenta TODAS las comisiones.
+- **Grid**: `bot/strategies/grid_strategy.py` - 3 pares, 15 niveles/par, rango 8%, spacing ~1.14% (margen 0.6pp > suelo 2×fee 0.52%), leverage 1, capital 90%, min-lot 8€ (>= ordermin SOL), stop-loss 5%, poll 15s, ATR-adaptive desactivado.
+- **Bidireccional en demo**: el grid opera en ambos lados (compra abajo, vende arriba). `_pair_short_ok` en demo devuelve `broker.has_short_support` directamente (el check de `EXCHANGE_ALLOW_SHORT` solo aplica en modo real), así que abre shorts simulados si la API los soporta. Las posiciones "short" del dashboard son los contra-lados pendientes de recomprar (sin desplazo de nocional, leverage 1).
+- **Margen pata corta (fiel a Kraken)**: la apertura de un short debita `GRID_MARGIN_OPEN_FEE_PCT` (0.02%) sobre el importe prestado (fill×amount) y el cierre debita `GRID_MARGIN_ROLLOVER_PCT` (0.025%) proporcional al tiempo abierto en tramos de `GRID_MARGIN_ROLLOVER_HOURS` (4h); ambos descuentan del PnL realizado y se acumulan en `margin_fees_eur` por par. En real Kraken presta con margen (leverage mín. 2, `margin_call=80/margin_stop=40`); el demo modela los costes de margen, no la liquidación.
+- **Lote mínimo real**: al inicializar cada par se compara `GRID_MIN_LOT_VALUE_EUR` contra `ordermin×precio` y `costmin` de AssetPairs (cargados en `_margin_support`); si el lote es menor, se loguea un warning de que Kraken rechazaría el lote (SOL manda: 0.06 SOL ≈ 6.2-7.8€).
+- **Fees**: el grid calcula el PnL neto de cada fill con `broker.fee_rate` (maker 0.16% en demo; si se activara modo real usaría taker 0.26%, conservador). Cada fill guarda su `fee_eur`; el balance acredita `pnl` neto por pierna y descuenta TODAS las comisiones (trade + margen).
 - **Demo**: `bot/trading/demo_trader.py` - sin ejecución real; el PnL se acredita al balance simulado.
 - **Clave grid**: cada ciclo lleno captura el spread entre niveles; el PnL por ciclo = spread − 2×fee. No es rentable fijar spacing menor que ~2×fee.
 - Cuando el precio se desvía del centro >8% (rebalance threshold), el grid **liquida posiciones y recentra** (rebalance). Si la fuga supera el stop-loss, cierra con pérdida.

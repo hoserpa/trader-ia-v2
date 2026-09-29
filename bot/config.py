@@ -132,6 +132,9 @@ class GridConfig:
     atr_spacing_divisor: float = field(default_factory=lambda: float(os.getenv("GRID_ATR_SPACING_DIVISOR", "3")))
     max_levels: int = field(default_factory=lambda: int(os.getenv("GRID_MAX_LEVELS", "15")))
     price_stale_sec: int = field(default_factory=lambda: int(os.getenv("GRID_PRICE_STALE_SEC", "300")))
+    margin_open_fee_pct: float = field(default_factory=lambda: float(os.getenv("GRID_MARGIN_OPEN_FEE_PCT", "0.0002")))
+    margin_rollover_pct: float = field(default_factory=lambda: float(os.getenv("GRID_MARGIN_ROLLOVER_PCT", "0.00025")))
+    margin_rollover_hours: int = field(default_factory=lambda: int(os.getenv("GRID_MARGIN_ROLLOVER_HOURS", "4")))
 
 
 @dataclass
@@ -202,6 +205,12 @@ class AppConfig:
             raise ValueError(f"GRID_POLL_INTERVAL inválido: {self.grid.poll_interval}. Debe ser > 0.")
         if self.grid.stop_loss_pct <= 0:
             raise ValueError(f"GRID_STOP_LOSS_PCT inválido: {self.grid.stop_loss_pct}. Debe ser > 0.")
+        if not (0 <= self.grid.margin_open_fee_pct <= 0.05):
+            raise ValueError(f"GRID_MARGIN_OPEN_FEE_PCT inválido: {self.grid.margin_open_fee_pct}. Debe estar entre 0 y 0.05 (Kraken: 0.01-0.05%).")
+        if not (0 <= self.grid.margin_rollover_pct <= 0.05):
+            raise ValueError(f"GRID_MARGIN_ROLLOVER_PCT inválido: {self.grid.margin_rollover_pct}. Debe estar entre 0 y 0.05 por periodo (Kraken: 0.01-0.05%/4h).")
+        if self.grid.margin_rollover_hours <= 0:
+            raise ValueError(f"GRID_MARGIN_ROLLOVER_HOURS inválido: {self.grid.margin_rollover_hours}. Debe ser > 0.")
         if not (self.exchange.margin_leverage >= 1):
             raise ValueError(f"EXCHANGE_MARGIN_LEVERAGE inválido: {self.exchange.margin_leverage}. Debe ser >= 1.")
         if self.exchange.margin_mode not in ("isolated", "cross"):
