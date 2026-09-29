@@ -835,6 +835,18 @@ class GridStrategy:
             else:
                 pnl = (entry - current_price) * amount - fee_eur
 
+            margin_cost_eur = 0.0
+            if is_counter and side == "buy":
+                margin_cost_eur = margin_short_rollover(
+                    entry * amount,
+                    _hours_between(
+                        level.get("opened_at"), datetime.now(timezone.utc).isoformat()
+                    ),
+                    config.grid.margin_rollover_pct,
+                    config.grid.margin_rollover_hours,
+                )
+                pnl -= margin_cost_eur
+
             close_level = {
                 "id": f"{level.get('id')}_liquidated",
                 "side": side,
@@ -842,16 +854,21 @@ class GridStrategy:
                 "entry_price": entry,
                 "cycle_id": level.get("cycle_id") or str(uuid4()),
                 "fee_eur": fee_eur,
+                "margin_rollover_eur": margin_cost_eur,
             }
 
             state["pnl_eur"] = state.get("pnl_eur", 0) + pnl
             state["fees_eur"] = state.get("fees_eur", 0) + fee_eur
+            state["margin_fees_eur"] = state.get("margin_fees_eur", 0) + margin_cost_eur
             state["total_grid_trades"] = state.get("total_grid_trades", 0) + 1
             self._global_state["total_pnl_eur"] = (
                 self._global_state.get("total_pnl_eur", 0) + pnl
             )
             self._global_state["total_fees_eur"] = (
                 self._global_state.get("total_fees_eur", 0) + fee_eur
+            )
+            self._global_state["total_margin_fees_eur"] = (
+                self._global_state.get("total_margin_fees_eur", 0) + margin_cost_eur
             )
             self._global_state["total_grid_trades"] = (
                 self._global_state.get("total_grid_trades", 0) + 1
