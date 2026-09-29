@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func
-from .models import Candle, PortfolioSnapshot, Position, Trade, ModelDecision, SystemLog, BotConfig
+from .models import Candle, PortfolioSnapshot, Position, Trade
 
 
 def upsert_candles(db: Session, candles: list[dict]) -> int:
@@ -63,75 +63,8 @@ def get_portfolio_history(db: Session, days: int = 30) -> list[PortfolioSnapshot
     )
 
 
-def create_position(db: Session, position_data: dict) -> Position:
-    pos = Position(**position_data)
-    db.add(pos)
-    db.commit()
-    db.refresh(pos)
-    return pos
-
-
 def get_open_positions(db: Session) -> list[Position]:
     return db.query(Position).filter_by(status="open").all()
-
-
-def get_open_position_by_pair(db: Session, pair: str) -> Optional[Position]:
-    return db.query(Position).filter_by(pair=pair, status="open").first()
-
-
-def get_open_position_by_pair_dict(db: Session, pair: str) -> Optional[dict]:
-    pos = db.query(Position).filter_by(pair=pair, status="open").first()
-    if pos:
-        return {
-            "id": pos.id,
-            "pair": pos.pair,
-            "amount_crypto": pos.amount_crypto,
-            "entry_price": pos.entry_price,
-            "stop_loss_price": pos.stop_loss_price,
-            "take_profit_price": pos.take_profit_price,
-            "amount_eur_invested": pos.amount_eur_invested,
-            "entry_timestamp": pos.entry_timestamp.isoformat() + "Z" if pos.entry_timestamp else None,
-            "position_type": getattr(pos, "position_type", "long"),
-        }
-    return None
-
-
-def update_position_order_ids(db: Session, position_id: int, sl_order_id: str = None, tp_order_id: str = None) -> Position:
-    """Actualiza los IDs de órdenes stop-loss/take-profit de exchange en una posición."""
-    pos = db.query(Position).get(position_id)
-    if sl_order_id:
-        pos.stop_loss_order_id = sl_order_id
-    if tp_order_id:
-        pos.take_profit_order_id = tp_order_id
-    db.commit()
-    return pos
-
-
-def update_position_partial_pnl(db: Session, position_id: int, partial_pnl: float) -> Position:
-    """Acumula PnL de una venta parcial en realized_pnl_eur de la posición."""
-    pos = db.query(Position).get(position_id)
-    pos.realized_pnl_eur = (pos.realized_pnl_eur or 0.0) + partial_pnl
-    db.commit()
-    return pos
-
-
-def close_position(db: Session, position_id: int, close_price: float, reason: str, close_fee: float = 0.0) -> Position:
-    pos = db.query(Position).get(position_id)
-    pos.status = "closed"
-    pos.close_price = close_price
-    pos.close_timestamp = datetime.utcnow()
-    pos.close_reason = reason
-    pos_type = getattr(pos, "position_type", "long")
-    realized = pos.realized_pnl_eur or 0.0
-    if pos_type == "short":
-        final_pnl = (pos.entry_price - close_price) * pos.amount_crypto - close_fee
-        pos.pnl_pct = (pos.entry_price - close_price) / pos.entry_price * 100
-    else:
-        final_pnl = (close_price - pos.entry_price) * pos.amount_crypto - close_fee
-        pos.pnl_pct = (close_price - pos.entry_price) / pos.entry_price * 100
-    pos.pnl_eur = realized + final_pnl
-    db.commit()
-    return pos
 
 
 def create_trade(db: Session, trade_data: dict) -> Trade:
@@ -335,27 +268,6 @@ def get_recent_operations(db: Session, limit: int = 8) -> list[dict]:
     return get_operations(db, limit, 0)
 
 
-def count_trades_today(db: Session) -> int:
-    today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-    return db.query(func.count(Trade.id)).filter(Trade.timestamp >= today).scalar()
-
-
-def save_decision(db: Session, decision: dict) -> ModelDecision:
-    obj = ModelDecision(**decision)
-    db.add(obj)
-    db.commit()
-    return obj
-
-
-def get_recent_decisions(db: Session, limit: int = 50) -> list[ModelDecision]:
-    return (
-        db.query(ModelDecision)
-        .order_by(desc(ModelDecision.timestamp))
-        .limit(limit)
-        .all()
-    )
-
-
 def get_stats_summary(db: Session) -> dict:
     """Estadisticas derivadas de las operaciones reales del grid.
 
@@ -365,10 +277,6 @@ def get_stats_summary(db: Session) -> dict:
     comisiones totales incluyen todas las piernas (aperturas y cierres).
     """
     today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-    today_errors = db.query(func.count(SystemLog.id)).filter(
-        SystemLog.timestamp >= today,
-        SystemLog.level.in_(["ERROR", "CRITICAL"])
-    ).scalar() or 0
 
     trades = db.query(Trade).order_by(Trade.timestamp.asc()).all()
     _, order = _group_cycle_keys(trades)
@@ -437,7 +345,6 @@ def get_stats_summary(db: Session) -> dict:
         "best_trade": round(best_trade, 4),
         "worst_trade": round(worst_trade, 4),
         "max_drawdown": max_drawdown,
-        "errors_today": today_errors,
     }
 
 
@@ -458,22 +365,6 @@ def calculate_max_drawdown_from_snapshots(db: Session) -> float:
             max_dd = drawdown
     
     return max_dd * 100
-
-
-def save_log(db: Session, level: str, module: str, message: str, extra: dict = None):
-    obj = SystemLog(
-        level=level, module=module, message=message,
-        extra_json=json.dumps(extra) if extra else None,
-    )
-    db.add(obj)
-    db.commit()
-
-
-def get_logs(db: Session, level: Optional[str] = None, limit: int = 100) -> list[SystemLog]:
-    q = db.query(SystemLog).order_by(desc(SystemLog.timestamp))
-    if level:
-        q = q.filter_by(level=level.upper())
-    return q.limit(limit).all()
 
 
 def reset_portfolio_data(db: Session) -> dict:

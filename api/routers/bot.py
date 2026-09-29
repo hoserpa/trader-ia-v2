@@ -44,7 +44,6 @@ async def bot_config():
             "min_lot_value_eur": config.grid.min_lot_value_eur,
             "capital_pct": config.grid.capital_pct,
             "range_pct": config.grid.range_pct,
-            "atr_adaptive": config.grid.atr_adaptive,
             "poll_interval": config.grid.poll_interval,
             "stop_loss_pct": config.grid.stop_loss_pct,
         }

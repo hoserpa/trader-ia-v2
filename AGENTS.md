@@ -81,7 +81,7 @@ TRADING_MODE=demo
 # Pares
 TRADING_PAIRS=BTC/EUR,ETH/EUR,SOL/EUR
 
-# Exchange (demo no necesita API keys; usa demo_trader)
+# Exchange (demo no necesita API keys; grid demo-only)
 EXCHANGE=kraken
 
 # -----------------------------------------------
@@ -106,9 +106,6 @@ GRID_MARGIN_LIQ_FEE_PCT=0.03
 GRID_REBALANCE_THRESHOLD=0.08
 GRID_STOP_LOSS_PCT=0.05
 GRID_POLL_INTERVAL=15
-# ATR-adaptive DESACTIVADO: medido en 15m (BTC 0.18%, ETH 0.23%, SOL 0.27%)
-# colapsa el spacing al suelo 2×fee (0.52%) -> margen ~0. El grid FIJO lo evita.
-GRID_ATR_ADAPTIVE=false
 
 # Database
 SQLITE_DB_PATH=/app/data/crypto_trader.db
@@ -168,14 +165,14 @@ docker compose ps
 ## Grid Strategy (referencia rápida)
 
 - **Engine**: `bot/trading/engine.py` - bucle de monitoreo y coordinación; reconcilia el PnL total con el balance real del portfolio (BD como fuente de verdad), regenera snapshots con throttle (1/hora o cambio >0.01), restaura posiciones abiertas al reiniciar.
-- **Grid**: `bot/strategies/grid_strategy.py` - 3 pares, 15 niveles/par, rango 8%, spacing ~1.14% (margen 0.6pp > suelo 2×fee 0.52%), leverage 1, capital 90%, min-lot 8€ (>= ordermin SOL), stop-loss 5%, poll 15s, ATR-adaptive desactivado.
-- **Bidireccional en demo**: el grid opera en ambos lados (compra abajo, vende arriba). `_pair_short_ok` en demo devuelve `broker.has_short_support` directamente (el check de `EXCHANGE_ALLOW_SHORT` solo aplica en modo real), así que abre shorts simulados si la API los soporta. Las posiciones "short" del dashboard son los contra-lados pendientes de recomprar (sin desplazo de nocional, leverage 1).
+- **Grid**: `bot/strategies/grid_strategy.py` - 3 pares, 15 niveles/par, rango 8%, spacing ~1.14% (margen 0.6pp > suelo 2×fee 0.52%), leverage 1, capital 90%, min-lot 8€ (>= ordermin SOL), stop-loss 5%, poll 15s, rango fijo (sin ATR-adaptive).
+- **Bidireccional en demo**: el grid opera en ambos lados (compra abajo, vende arriba). `_pair_short_ok` consulta `_margin_support` del par (el check de `EXCHANGE_ALLOW_SHORT` solo aplica en modo real), así que abre shorts simulados si la API los soporta. Las posiciones "short" del dashboard son los contra-lados pendientes de recomprar (sin desplazo de nocional, leverage 1).
 - **Margen pata corta (fiel a Kraken)**: la apertura de un short debita `GRID_MARGIN_OPEN_FEE_PCT` (0.02%) sobre el importe prestado (fill×amount) y el cierre debita `GRID_MARGIN_ROLLOVER_PCT` (0.025%) proporcional al tiempo abierto en tramos de `GRID_MARGIN_ROLLOVER_HOURS` (4h); ambos descuentan del PnL realizado y se acumulan en `margin_fees_eur` por par.
 - **Garantía del margen (leverage 2)**: cada short blandea `entry×amount/leverage` de `used_margin` (collateral); el demo la expone como `margin_used_eur` y la resta del balance libre del portfolio (`free_balance_eur = balance − margin_used`). Fiel a Kraken: para prestar la base se exige leverage mínimo 2 y `margin_level = equity/used_margin ×100`.
 - **Liquidación de margen (Kraken `margin_call=80` / `margin_stop=40`)**: cada poll el grid mide `margin_health` (equity = balance + no realizado de todas las piernas); si `margin_level ≤ call` (80%) loguea aviso (una vez por transición); si `≤ stop` (40%) **liquida las shorts al precio de mercado** (`reason="margin_call"`), debitando PnL de cierre − comisión de liquidación `GRID_MARGIN_LIQ_FEE_PCT` (3% del nocional). Con leverage 2 el corto aguanta ~25% de subida adversa (7% → margin call); el stop-loss 5% / rebalance 8% disparan antes, así que la liquidación es un seguro de cola.
 - **Lote mínimo real**: al inicializar cada par se compara `GRID_MIN_LOT_VALUE_EUR` contra `ordermin×precio` y `costmin` de AssetPairs (cargados en `_margin_support`); si el lote es menor, se loguea un warning de que Kraken rechazaría el lote (SOL manda: 0.06 SOL ≈ 6.2-7.8€).
 - **Fees**: el grid calcula el PnL neto de cada fill con `broker.fee_rate` (maker 0.16% en demo; si se activara modo real usaría taker 0.26%, conservador). Cada fill guarda su `fee_eur`; el balance acredita `pnl` neto por pierna y descuenta TODAS las comisiones (trade + margen).
-- **Demo**: `bot/trading/demo_trader.py` - sin ejecución real; el PnL se acredita al balance simulado.
+- **Demo**: el PnL se acredita directamente al balance simulado en Redis (sin broker separado; `GridStrategy._fee_rate` = maker 0.16% en demo, taker 0.26% conservador si se activara real).
 - **Clave grid**: cada ciclo lleno captura el spread entre niveles; el PnL por ciclo = spread − 2×fee. No es rentable fijar spacing menor que ~2×fee.
 - Cuando el precio se desvía del centro >8% (rebalance threshold), el grid **liquida posiciones y recentra** (rebalance). Si la fuga supera el stop-loss, cierra con pérdida.
 - **Reinicios**: `start()` restaura el estado desde Redis y fuerza `enabled=true` + `_running=true` al arrancar (independiente de lo que haya quedado grabado en `grid:global`), para que un reinicio del contenedor nunca deje el grid pausado en silencio.

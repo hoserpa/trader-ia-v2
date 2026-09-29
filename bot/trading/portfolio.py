@@ -83,16 +83,6 @@ class Portfolio:
         self._state["positions"].pop(pair, None)
         await self._save(self._state)
 
-    async def update_position_meta(self, pair: str, key: str, value) -> None:
-        """Actualiza un campo específico de una posición sin reemplazarla entera."""
-        if pair in self._state["positions"]:
-            self._state["positions"][pair][key] = value
-            await self._save(self._state)
-
-    def get_position(self, pair: str) -> dict | None:
-        """Retorna posición de un par desde Redis (no SQLite)."""
-        return self._state.get("positions", {}).get(pair)
-
     async def update_valuations(self, current_prices: dict, open_levels: dict | None = None) -> dict:
         """Recalcula el valor total del portafolio con precios actuales.
 

@@ -1,20 +1,8 @@
 """Orquestador principal del trading bot (grid-only)."""
 import asyncio
-import json
 import os
 import time
 from datetime import datetime, date, timezone
-
-
-class DateTimeEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, (datetime, date)):
-            return obj.isoformat() + "Z"
-        return super().default(obj)
-
-
-def _json_dumps(obj):
-    return json.dumps(obj, cls=DateTimeEncoder)
 
 
 from loguru import logger
@@ -22,13 +10,8 @@ import redis.asyncio as aioredis
 import ccxt
 from config import config
 from data.collector import DataCollector
-from indicators.technical import calculate_indicators, get_atr
-from trading.portfolio import Portfolio
-from trading.risk_manager import RiskManager
-from trading.broker import build_broker
+from trading.portfolio import Portfolio, _json_dumps
 from trading import market_data
-from trading.demo_trader import DemoTrader
-from trading.real_trader import RealTrader
 from strategies.grid_strategy import GridStrategy
 from config_service import apply_overrides
 from notifications.telegram import TelegramNotifier
@@ -65,10 +48,8 @@ class TradingEngine:
         self.collector = DataCollector(redis_client)
         self.portfolio = Portfolio(redis_client)
         self.telegram = TelegramNotifier()
-        self.risk = RiskManager()
-        self.broker = build_broker(self.portfolio, self.risk)
         self.grid_strategy = GridStrategy(
-            redis_client, self.portfolio, broker=self.broker, telegram=self.telegram
+            redis_client, self.portfolio, telegram=self.telegram
         )
         self._running = False
         self._status = "stopped"
@@ -78,7 +59,6 @@ class TradingEngine:
         self._lock_key = "bot:instance_lock"
         self._lock_value = ""
         self._lock_heartbeat_task: asyncio.Task | None = None
-        self._atr_cache: dict[str, float] = {}
         self._last_snapshot = 0
         self._last_snapshot_time = 0.0
         self._last_snapshot_value = 0.0
@@ -180,7 +160,6 @@ class TradingEngine:
                 "short_leverage": None, "margin_ok": False, "short_ok": False,
             } for p in pairs}
 
-        self.broker.set_margin_support(margin)
         self.grid_strategy.set_margin_support(margin)
         self.margin_supported = margin
 
@@ -212,7 +191,6 @@ class TradingEngine:
         await asyncio.sleep(10)
         while self._running and config.grid.enabled:
             try:
-                await self._update_atr_cache()
                 await self.grid_strategy.check_orders()
             except Exception as e:
                 logger.error(f"Error en grid loop: {e}")
@@ -232,22 +210,6 @@ class TradingEngine:
                 logger.warning(f"Error en monitoring loop: {e}")
                 await self.telegram.notify_error(f"monitoring_loop: {e}", warn_key="monitoring_loop")
             await asyncio.sleep(300)
-
-    async def _update_atr_cache(self):
-        """Actualiza cache de ATR para grid ATR-adaptive."""
-        if not config.grid.atr_adaptive:
-            return
-        for pair in config.grid.pairs:
-            try:
-                candles = await self.collector.get_latest_candles(pair, limit=100)
-                if candles is not None and len(candles) >= 20:
-                    df = calculate_indicators(candles)
-                    atr = get_atr(df)
-                    if atr and atr > 0:
-                        self._atr_cache[pair] = atr
-                        self.grid_strategy.set_atr_cache(pair, atr)
-            except Exception:
-                pass
 
     async def _send_daily_summary_if_needed(self) -> None:
         today_key = "bot:last_summary_date"

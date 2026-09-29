@@ -4,7 +4,6 @@ import json
 from datetime import datetime
 from typing import Optional
 import ccxt.async_support as ccxt
-import pandas as pd
 import redis.asyncio as aioredis
 import websockets
 from loguru import logger
@@ -21,15 +20,11 @@ class DataCollector:
     Publica eventos en canal Redis 'new_candle' para el motor de trading.
     """
 
-    REDIS_CANDLE_KEY = "candles:{pair}:{timeframe}"
     REDIS_PRICE_KEY = "price:{pair}"
-    REDIS_CHANNEL = "new_candle"
-    MAX_REDIS_CANDLES = 500
 
     def __init__(self, redis_client: aioredis.Redis):
         self.redis = redis_client
         self.exchange = self._build_exchange()
-        self._futures_exchange = None
         self._running = False
         self._ws_ok = False
         self._reconnect_delay = 5
@@ -46,32 +41,6 @@ class DataCollector:
 
         exchange = getattr(ccxt, exchange_id)(params)
         return exchange
-
-    def _build_futures_exchange(self):
-        """Construye una instancia ccxt para futuros."""
-        exchange_id = "krakenfutures"
-        params = {
-            "enableRateLimit": True,
-        }
-        if config.trading.mode == "real":
-            params["apiKey"] = config.exchange.api_key
-            params["secret"] = config.exchange.api_secret
-        else:
-            params["apiKey"] = config.exchange.api_key or "demo"
-            params["secret"] = config.exchange.api_secret or "demo"
-
-        return getattr(ccxt, exchange_id)(params)
-
-    async def get_futures_exchange(self):
-        """Retorna (creando si es necesario) la instancia de futuros."""
-        if self._futures_exchange is None:
-            self._futures_exchange = self._build_futures_exchange()
-            try:
-                await self._futures_exchange.load_markets()
-                logger.info("Exchange de futuros inicializado")
-            except Exception as e:
-                logger.error(f"Error cargando mercados de futuros: {e}")
-        return self._futures_exchange
 
     async def start(self) -> None:
         self._running = True
@@ -193,8 +162,7 @@ class DataCollector:
             round_ok = True
             for pair in config.trading.pairs:
                 try:
-                    symbol = config.trading.get_symbol(pair)
-                    ticker = await self.exchange.fetch_ticker(symbol)
+                    ticker = await self.exchange.fetch_ticker(pair)
                     price = ticker.get("last")
                     if price:
                         await self.redis.set(
@@ -235,9 +203,8 @@ class DataCollector:
             await asyncio.sleep(interval_seconds)
 
     async def _fetch_and_store_ohlcv(self, pair: str) -> None:
-        symbol = config.trading.get_symbol(pair)
         ohlcv = await self.exchange.fetch_ohlcv(
-            symbol, timeframe=config.trading.timeframe, limit=3
+            pair, timeframe=config.trading.timeframe, limit=3
         )
         if not ohlcv:
             return
@@ -258,38 +225,7 @@ class DataCollector:
         finally:
             db.close()
 
-        redis_key = self.REDIS_CANDLE_KEY.format(pair=pair, timeframe=config.trading.timeframe)
-        pipe = self.redis.pipeline()
-        for c in candles_data:
-            pipe.rpush(redis_key, json.dumps({
-                "timestamp": c["timestamp"].isoformat(),
-                "open": c["open"], "high": c["high"],
-                "low": c["low"], "close": c["close"], "volume": c["volume"],
-            }))
-        pipe.ltrim(redis_key, -self.MAX_REDIS_CANDLES, -1)
-        await pipe.execute()
-
-        latest = candles_data[-1]
-        await self.redis.publish(
-            self.REDIS_CHANNEL,
-            json.dumps({"pair": pair, "timestamp": latest["timestamp"].isoformat() + "Z", "close": latest["close"]}),
-        )
-        logger.debug(f"OHLCV actualizado: {pair} | close={latest['close']}")
-
-    async def get_latest_candles(self, pair: str, limit: int = 200) -> pd.DataFrame:
-        """Obtiene las últimas N velas desde Redis."""
-        redis_key = self.REDIS_CANDLE_KEY.format(pair=pair, timeframe=config.trading.timeframe)
-        raw = await self.redis.lrange(redis_key, -limit, -1)
-        if not raw:
-            return pd.DataFrame()
-
-        rows = [json.loads(r) for r in raw]
-        df = pd.DataFrame(rows)
-        df["timestamp"] = pd.to_datetime(df["timestamp"].str.rstrip("Z"))
-        df = df.sort_values("timestamp").reset_index(drop=True)
-        for col in ["open", "high", "low", "close", "volume"]:
-            df[col] = df[col].astype(float)
-        return df
+        logger.debug(f"OHLCV actualizado: {pair} | close={candles_data[-1]['close']}")
 
     async def get_current_price(self, pair: str) -> Optional[float]:
         """Obtiene el precio actual desde Redis o fallback."""

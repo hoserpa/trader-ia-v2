@@ -1,10 +1,7 @@
 """Estrategia de grid trading para capturar volatilidad lateral.
 
-Opera independientemente del ML: coloca órdenes limit en niveles equidistantes.
+Coloca órdenes limit en niveles equidistantes (rango fijo configurado).
 Cada fill genera la orden opuesta en el nivel adyacente, capturando el spread.
-
-Soporta modo ATR-adaptive donde el rango y spacing se ajustan automaticamente
-a la volatilidad actual del mercado.
 """
 import json
 from datetime import datetime, timezone
@@ -44,30 +41,30 @@ MAX_FILLED_HISTORY = 50
 
 
 class GridStrategy:
-    """Grid trading con soporte ATR-adaptive."""
+    """Grid trading de rango fijo (sin ATR-adaptive)."""
 
-    def __init__(self, redis_client, portfolio: Portfolio, broker=None, telegram=None):
+    def __init__(self, redis_client, portfolio: Portfolio, telegram=None):
         self.redis = redis_client
         self.portfolio = portfolio
-        self.broker = broker
         self.telegram = telegram
         self._running = False
         self._state: dict[str, dict] = {}
         self._global_state: dict = {}
         self._margin_support: dict = {}
 
+    @property
+    def _fee_rate(self) -> float:
+        """Comisión por pierna: maker en demo, taker en real (conservador)."""
+        return config.exchange.taker_fee if not config.trading.is_demo() else config.exchange.maker_fee
+
     def set_margin_support(self, support: dict) -> None:
         self._margin_support = support or {}
-        if self.broker:
-            self.broker.set_margin_support(self._margin_support)
 
     def _pair_short_ok(self, pair: str) -> bool:
-        """Un par puede abrir shorts solo si la API real permite margen/corto en el.
+        """Un par puede abrir shorts solo si la API real permite margen/corto en él.
 
         En demo se permite simular shorts donde la API real los soporte (short_ok);
-        en real se exige ademas allow_short + margin_enabled."""
-        if self.broker is not None:
-            return self.broker.has_short_support(pair)
+        en real se exige además allow_short + margin_enabled."""
         if not config.trading.is_demo() and not (config.exchange.allow_short and config.exchange.margin_enabled):
             return False
         info = self._margin_support.get(pair, {})
@@ -84,7 +81,7 @@ class GridStrategy:
                 return "EXCHANGE_MARGIN_ENABLED=false en config"
         info = self._margin_support.get(pair, {})
         if info.get("short_ok"):
-            return "mercado admite short pero broker lo descarta"
+            return "mercado admite short pero el grid lo descarta"
         return "la API real no permite margen/corto en este par"
 
     @property
@@ -202,7 +199,7 @@ class GridStrategy:
 
     async def _liquidate_short(self, pair: str, lvl: dict, liq_price: float) -> int:
         """Cierra una short por liquidacion de margen a precio de mercado."""
-        fee_rate = self.broker.fee_rate if self.broker else config.exchange.maker_fee
+        fee_rate = self._fee_rate
         entry = lvl.get("entry_price") or lvl["price"]
         fee_eur = liq_price * lvl["amount"] * fee_rate
         liq_fee = round(entry * lvl["amount"] * config.grid.margin_liq_fee_pct, 4)
@@ -501,66 +498,16 @@ class GridStrategy:
 
         return price
 
-    def _get_atr(self, pair: str) -> Optional[float]:
-        """Obtiene ATR actual desde cache del engine si esta disponible."""
-        try:
-            from indicators.technical import calculate_indicators, get_atr
-            cache_key = pair
-            if hasattr(self, "_atr_cache") and cache_key in self._atr_cache:
-                return self._atr_cache[cache_key]
-        except ImportError:
-            pass
-        return None
-
-    def set_atr_cache(self, pair: str, atr: float):
-        """Cache de ATR actualizado por el engine."""
-        if not hasattr(self, "_atr_cache"):
-            self._atr_cache = {}
-        self._atr_cache[pair] = atr
-
     async def _init_pair_grid(
         self, pair: str, current_price: float, capital_per_pair: float
     ):
-        """Calcula niveles iniciales. ATR-adaptive si esta habilitado."""
+        """Calcula niveles iniciales con rango fijo configurado."""
         grid_cfg = config.grid
-
-        if grid_cfg.atr_adaptive and current_price > 0:
-            atr = self._get_atr(pair)
-            if atr and atr > 0:
-                range_amount = atr * grid_cfg.atr_range_mult
-                spacing = atr / grid_cfg.atr_spacing_divisor
-                min_spacing = 2 * current_price * max(
-                    config.exchange.maker_fee, config.exchange.taker_fee
-                )
-                if spacing < min_spacing:
-                    logger.warning(
-                        f"Grid {pair}: spacing ATR {spacing:.4f} < 2x fee, "
-                        f"subido a suelo {min_spacing:.4f}"
-                    )
-                    spacing = min_spacing
-                lower = current_price - range_amount
-                upper = current_price + range_amount
-                n_levels = max(
-                    4, int((upper - lower) / max(spacing, 0.01)) + 1
-                )
-                n_levels = min(n_levels, grid_cfg.max_levels)
-                spacing = (upper - lower) / max(n_levels - 1, 1)
-                logger.info(
-                    f"Grid {pair}: ATR-adaptive range={range_amount:.2f}, "
-                    f"spacing={spacing:.2f}, levels={n_levels}"
-                )
-            else:
-                range_amount = current_price * grid_cfg.range_pct
-                lower = current_price - range_amount
-                upper = current_price + range_amount
-                n_levels = grid_cfg.levels_per_pair
-                spacing = (upper - lower) / max(n_levels - 1, 1)
-        else:
-            range_amount = current_price * grid_cfg.range_pct
-            lower = current_price - range_amount
-            upper = current_price + range_amount
-            n_levels = grid_cfg.levels_per_pair
-            spacing = (upper - lower) / max(n_levels - 1, 1)
+        range_amount = current_price * grid_cfg.range_pct
+        lower = current_price - range_amount
+        upper = current_price + range_amount
+        n_levels = grid_cfg.levels_per_pair
+        spacing = (upper - lower) / max(n_levels - 1, 1)
 
         level_value_eur = max(
             capital_per_pair / n_levels, grid_cfg.min_lot_value_eur
@@ -669,7 +616,7 @@ class GridStrategy:
         spacing = self._state[pair]["spacing"]
         entry_price = level.get("entry_price", level["price"])
         amount = level["amount"]
-        fee_rate = self.broker.fee_rate if self.broker else config.exchange.maker_fee
+        fee_rate = self._fee_rate
         fee_eur = fill_price * amount * fee_rate
         level["fee_eur"] = fee_eur
         pnl = 0.0
@@ -947,7 +894,7 @@ class GridStrategy:
         orden (el bug que dejaba shorts/longs sin cerrar ni reconciliar).
         """
         state = self._state[pair]
-        fee_rate = self.broker.fee_rate if self.broker else config.exchange.maker_fee
+        fee_rate = self._fee_rate
         liquidated = []
 
         for level in state["levels"]:
@@ -1162,7 +1109,7 @@ class GridStrategy:
             "enabled": config.grid.enabled,
             "running": self._running,
             "simulated": True,
-            "execution_mode": getattr(self.broker, "mode", "demo") if self.broker else "demo",
+            "execution_mode": "demo" if config.trading.is_demo() else "real",
             "margin_enabled": config.exchange.margin_enabled,
             "allow_short": config.exchange.allow_short,
             "pairs": pairs,
@@ -1192,7 +1139,6 @@ class GridStrategy:
                 "rebalance_threshold": config.grid.rebalance_threshold,
                 "stop_loss_pct": config.grid.stop_loss_pct,
                 "poll_interval": config.grid.poll_interval,
-                "atr_adaptive": config.grid.atr_adaptive,
                 "taker_fee": config.exchange.taker_fee,
                 "maker_fee": config.exchange.maker_fee,
                 "margin_enabled": config.exchange.margin_enabled,

@@ -2,7 +2,6 @@
 import asyncio
 from datetime import datetime, timedelta
 import ccxt.async_support as ccxt
-import pandas as pd
 from loguru import logger
 from config import config
 from database.crud import upsert_candles
@@ -26,8 +25,7 @@ async def fetch_and_store_historical(pair: str, days: int = 90) -> int:
     all_candles = []
     limit = 300
 
-    symbol = config.trading.get_symbol(pair)
-    logger.info(f"Descargando histórico {pair} -> {symbol} ({days} días, {timeframe})...")
+    logger.info(f"Descargando histórico {pair} ({days} días, {timeframe})...")
     try:
         await exchange.load_markets()
     except Exception as e:
@@ -38,7 +36,7 @@ async def fetch_and_store_historical(pair: str, days: int = 90) -> int:
     try:
         while True:
             try:
-                ohlcv = await exchange.fetch_ohlcv(symbol, timeframe=timeframe, since=since, limit=limit)
+                ohlcv = await exchange.fetch_ohlcv(pair, timeframe=timeframe, since=since, limit=limit)
             except Exception as e:
                 logger.warning(f"Error descargando {pair}, continuando: {e}")
                 break

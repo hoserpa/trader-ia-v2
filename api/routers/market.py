@@ -9,6 +9,20 @@ from config import config
 router = APIRouter()
 
 
+def resample_15m_to_htf(df, freq: str):
+    """Resamplea velas 15m a una timeframe mayor (1h, 4h)."""
+    import pandas as pd
+    cols = [c for c in ["timestamp", "open", "high", "low", "close", "volume"] if c in df.columns]
+    df = df[cols].copy()
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df = df.set_index("timestamp")
+    agg = df.resample(freq).agg({
+        "open": "first", "high": "max", "low": "min",
+        "close": "last", "volume": "sum",
+    }).dropna().reset_index()
+    return agg
+
+
 @router.get("/prices")
 async def get_prices():
     from api.main import get_redis
@@ -46,7 +60,6 @@ async def get_candles(
                 "timestamp": c.timestamp, "open": c.open, "high": c.high,
                 "low": c.low, "close": c.close, "volume": c.volume,
             } for c in base])
-            from bot.indicators.features import resample_15m_to_htf
             agg = resample_15m_to_htf(df, freq) if not df.empty else df
             candles = [{
                 "timestamp": r.timestamp.isoformat(),

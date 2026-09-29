@@ -1,8 +1,8 @@
 """Modelos SQLAlchemy para la base de datos SQLite."""
 from datetime import datetime
 from sqlalchemy import (
-    Column, Integer, Float, String, DateTime, Boolean, Text,
-    ForeignKey, UniqueConstraint, Index, create_engine
+    Column, Integer, Float, String, DateTime, Text,
+    ForeignKey, UniqueConstraint, Index
 )
 from sqlalchemy.orm import declarative_base, relationship
 
@@ -82,36 +82,3 @@ class Trade(Base):
         Index("idx_trades_cycle", "cycle_id"),
         Index("idx_trades_reason", "reason"),
     )
-
-
-class ModelDecision(Base):
-    __tablename__ = "model_decisions"
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    timestamp = Column(DateTime, nullable=False, default=datetime.utcnow)
-    pair = Column(String(20), nullable=False)
-    signal = Column(String(4), nullable=False)
-    confidence = Column(Float, nullable=False)
-    prob_buy = Column(Float, nullable=False)
-    prob_sell = Column(Float, nullable=False)
-    prob_hold = Column(Float, nullable=False)
-    executed = Column(Boolean, nullable=False, default=False)
-    rejection_reason = Column(String(200), nullable=True)
-    __table_args__ = (Index("idx_decisions_timestamp", "timestamp"),)
-
-
-class BotConfig(Base):
-    __tablename__ = "bot_config"
-    key = Column(String(100), primary_key=True)
-    value = Column(Text, nullable=False)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-
-
-class SystemLog(Base):
-    __tablename__ = "system_logs"
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    timestamp = Column(DateTime, nullable=False, default=datetime.utcnow)
-    level = Column(String(10), nullable=False)
-    module = Column(String(50), nullable=False)
-    message = Column(Text, nullable=False)
-    extra_json = Column(Text, nullable=True)
-    __table_args__ = (Index("idx_logs_timestamp", "timestamp"),)

@@ -6,21 +6,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-def _normalize_pair(pair: str, base_currency: str = "EUR") -> str:
-    """Convierte par al formato que espera ccxt.
-    
-    BTC/EUR -> BTC/EUR (ccxt maneja este formato)
-    BTCEUR -> BTC/EUR (convierte formato sin barra)
-    """
-    if "/" in pair:
-        return pair
-    if len(pair) == 6 and pair.isupper():
-        base = pair[:3]
-        quote = pair[3:]
-        return f"{base}/{quote}"
-    return pair
-
-
 def _split_pairs(val: str) -> list:
     """Divide lista de pares separada por comas: sin espacios ni vacíos."""
     return [p.strip() for p in val.split(",") if p.strip()]
@@ -42,14 +27,6 @@ def _normalize_timeframe(tf: str) -> str:
     return mapping.get(tf, tf)
 
 
-def _get_exchange_symbol(pair: str) -> str:
-    """Convierte par al formato de símbolo del exchange (sin barra).
-    
-    BTC/EUR -> BTCEUR
-    """
-    return pair.replace("/", "")
-
-
 @dataclass
 class ExchangeConfig:
     name: str = field(default_factory=lambda: os.getenv("EXCHANGE", "kraken"))
@@ -61,10 +38,6 @@ class ExchangeConfig:
     margin_mode: str = field(default_factory=lambda: os.getenv("EXCHANGE_MARGIN_MODE", "isolated"))
     margin_leverage: int = field(default_factory=lambda: int(os.getenv("EXCHANGE_MARGIN_LEVERAGE", "2")))
     allow_short: bool = field(default_factory=lambda: os.getenv("EXCHANGE_ALLOW_SHORT", "false").lower() == "true")
-
-    def short_ok_regardless_of_margin(self) -> bool:
-        """La API real (sin margin activo) no permite shorts spot sin poseer el activo."""
-        return self.allow_short and self.margin_enabled
 
 
 @dataclass
@@ -78,41 +51,6 @@ class TradingConfig:
 
     def is_demo(self) -> bool:
         return self.mode == "demo"
-    
-    def get_symbol(self, pair: str) -> str:
-        """Retorna el símbolo del par para el exchange.
-        
-        ccxt maneja internamente la conversión al formato nativo del exchange,
-        así que pasamos el formato unificado con barra.
-        """
-        return pair
-
-
-@dataclass
-class RiskConfig:
-    max_risk_per_trade_pct: float = field(default_factory=lambda: float(os.getenv("MAX_RISK_PER_TRADE_PCT", "0.01")))
-    max_open_positions: int = field(default_factory=lambda: int(os.getenv("MAX_OPEN_POSITIONS", "1")))
-    max_portfolio_in_crypto_pct: float = field(default_factory=lambda: float(os.getenv("MAX_PORTFOLIO_IN_CRYPTO_PCT", "0.25")))
-    buy_threshold: float = field(default_factory=lambda: float(os.getenv("BUY_THRESHOLD", "0.10")))
-    sell_threshold: float = field(default_factory=lambda: float(os.getenv("SELL_THRESHOLD", "0.10")))
-    stop_loss_atr_multiplier: float = field(default_factory=lambda: float(os.getenv("STOP_LOSS_ATR_MULTIPLIER", "2.5")))
-    take_profit_atr_multiplier: float = field(default_factory=lambda: float(os.getenv("TAKE_PROFIT_ATR_MULTIPLIER", "3.0")))
-    max_daily_trades: int = field(default_factory=lambda: int(os.getenv("MAX_DAILY_TRADES", "3")))
-    high_volatility_atr_threshold: float = field(default_factory=lambda: float(os.getenv("HIGH_VOLATILITY_ATR_THRESHOLD", "0.025")))
-    min_confidence_threshold: float = field(default_factory=lambda: float(os.getenv("MIN_CONFIDENCE_THRESHOLD", "0.55")))
-    close_confidence_threshold: float = field(default_factory=lambda: float(os.getenv("CLOSE_CONFIDENCE_THRESHOLD", "0.45")))
-    min_trade_eur: float = 5.0
-    max_position_hours: int = field(default_factory=lambda: int(os.getenv("MAX_POSITION_HOURS", "8")))
-    exchange_stop_loss: bool = field(default_factory=lambda: os.getenv("EXCHANGE_STOP_LOSS", "true").lower() == "true")
-    limit_order_timeout: int = field(default_factory=lambda: int(os.getenv("LIMIT_ORDER_TIMEOUT", "15")))
-    trailing_stop_activation_pct: float = field(default_factory=lambda: float(os.getenv("TRAILING_STOP_ACTIVATION_PCT", "0.008")))
-    trailing_stop_distance_atr: float = field(default_factory=lambda: float(os.getenv("TRAILING_STOP_DISTANCE_ATR", "1.0")))
-    partial_exit_pct: float = field(default_factory=lambda: float(os.getenv("PARTIAL_EXIT_PCT", "0.50")))
-    partial_exit_r_multiple: float = field(default_factory=lambda: float(os.getenv("PARTIAL_EXIT_R_MULTIPLE", "1.5")))
-    rsi_oversold: float = field(default_factory=lambda: float(os.getenv("RSI_OVERSOLD", "30.0")))
-    rsi_overbought: float = field(default_factory=lambda: float(os.getenv("RSI_OVERBOUGHT", "70.0")))
-    cooldown_minutes: int = field(default_factory=lambda: int(os.getenv("COOLDOWN_MINUTES", "180")))
-    min_volatility_atr_pct: float = field(default_factory=lambda: float(os.getenv("MIN_VOLATILITY_ATR_PCT", "0.0015")))
 
 
 @dataclass
@@ -127,11 +65,6 @@ class GridConfig:
     rebalance_threshold: float = field(default_factory=lambda: float(os.getenv("GRID_REBALANCE_THRESHOLD", "0.08")))
     stop_loss_pct: float = field(default_factory=lambda: float(os.getenv("GRID_STOP_LOSS_PCT", "0.05")))
     poll_interval: int = field(default_factory=lambda: int(os.getenv("GRID_POLL_INTERVAL", "15")))
-    atr_adaptive: bool = field(default_factory=lambda: os.getenv("GRID_ATR_ADAPTIVE", "true").lower() == "true")
-    atr_range_mult: float = field(default_factory=lambda: float(os.getenv("GRID_ATR_RANGE_MULT", "4")))
-    atr_spacing_divisor: float = field(default_factory=lambda: float(os.getenv("GRID_ATR_SPACING_DIVISOR", "3")))
-    max_levels: int = field(default_factory=lambda: int(os.getenv("GRID_MAX_LEVELS", "15")))
-    price_stale_sec: int = field(default_factory=lambda: int(os.getenv("GRID_PRICE_STALE_SEC", "300")))
     margin_open_fee_pct: float = field(default_factory=lambda: float(os.getenv("GRID_MARGIN_OPEN_FEE_PCT", "0.0002")))
     margin_rollover_pct: float = field(default_factory=lambda: float(os.getenv("GRID_MARGIN_ROLLOVER_PCT", "0.00025")))
     margin_rollover_hours: int = field(default_factory=lambda: int(os.getenv("GRID_MARGIN_ROLLOVER_HOURS", "4")))
@@ -156,14 +89,6 @@ class TelegramConfig:
 
 
 @dataclass
-class APIConfig:
-    host: str = field(default_factory=lambda: os.getenv("API_HOST", "0.0.0.0"))
-    port: int = field(default_factory=lambda: int(os.getenv("API_PORT", "8000")))
-    username: str = field(default_factory=lambda: os.getenv("API_USERNAME", "admin"))
-    password: str = field(default_factory=lambda: os.getenv("API_PASSWORD", "changeme"))
-
-
-@dataclass
 class LogConfig:
     level: str = field(default_factory=lambda: os.getenv("LOG_LEVEL", "INFO"))
     file: str = field(default_factory=lambda: os.getenv("LOG_FILE", "/app/logs/bot.log"))
@@ -175,11 +100,9 @@ class LogConfig:
 class AppConfig:
     exchange: ExchangeConfig = field(default_factory=ExchangeConfig)
     trading: TradingConfig = field(default_factory=TradingConfig)
-    risk: RiskConfig = field(default_factory=RiskConfig)
     grid: GridConfig = field(default_factory=GridConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
-    api: APIConfig = field(default_factory=APIConfig)
     log: LogConfig = field(default_factory=LogConfig)
 
     def validate(self) -> None:
