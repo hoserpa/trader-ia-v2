@@ -559,35 +559,38 @@ El rebalanceo consume ~40% del PnL del grid (5 eventos, −4,40 €) con 0,19 ev
 
 ## 9. [30 Sep 2026] Bug de doble contabilización de PnL — hallazgo posterior
 
-> **Este hallazgo es posterior a la redacción del informe (30 Sep 2026) e invalida las cifras de PnL del periodo A1 (§4.1, §1.1, §3.2): el +3,32% histórico no es fiable.** Fue detectado por un agente externo y cuantificado con la herramienta `reconcile_grid_pnl.py` contra la BD de producción.
+> **Este hallazgo es posterior a la redacción del informe (30 Sep 2026) e invalida las cifras de PnL del periodo medido (§4.1, §1.1, §3.2): el +3,32% histórico no es fiable.** Fue detectado por un agente externo y cuantificado con la herramienta `reconcile_grid_pnl.py` contra la BD de producción.
 
 ### 9.1 El bug
 
-En `bot/strategies/grid_strategy.py`, la alternancia apertura/cierre de cada ciclo se detectaba con `is_close = isinstance(level.get("id"), str)`: los niveles iniciales tenían `id` entero y cualquier nivel creado por un fill tenía `id` de tipo string. **El bug: los contra-niveles creados en pasos 2, 3, 4… también tienen `id` string**, así que `is_close` era `True` **siempre**, nunca alternaba. Consecuencia: cada hop a partir del segundo de una cadena grababa `pnl_eur` como si fuese un cierre.
+En `bot/strategies/grid_strategy.py`, la alternancia apertura/cierre de cada ciclo se detectaba con `is_close = isinstance(level.get("id"), str)`: los niveles iniciales tenían `id` entero y cualquier nivel creado por un fill tenía `id` de tipo string. **El bug: los contra-niveles creados en pasos 2, 3, 4… también tienen `id` string**, así que `is_close` era `True` **siempre**, nunca alternaba. Consecuencia: los niveles de apertura que nacen de un cierre (el re-ingreso tras cubrir) se acreditaban como si fuesen un cierre, generando close fantasma.
 
-- **PnL duplicado/inventado**: un ciclo de compra→venta acreditaba el spread en **ambos** lados (en la compra de apertura y en la venta de cierre), no solo en el cierre.
-- **Signo invertido posible**: cuando el PnL real del cierre es negativo, la lógica lo duplicaba en la dirección equivocada (caso ETH, ratio **−2,07×**).
+- **Cierre fantasma**: una contra-orden cuyo nivel es *apertura* (re-ingreso long/short) grababa `pnl_eur = spread − fee − rollover` como si cerrase una posición inexistente. Cada re-ingreso añadía un ciclo de PnL que nunca existió.
 - La contabilidad "cuadraba" (§4.1) porque el mismo valor doblado alimentaba balance y ledger — consistencia interna **no** equivale a realidad.
 - **Afecta también a**: telegram (`is_cycle_close`), persistencia (`pnl_eur` en `_persist_grid_fill`), cierres de short (`_short_covers`), cálculo de `margin_health` y liquidaciones (`_liquidate_pair_positions`).
 
-**La detección por tipo es frágil por diseño y ya no existe**: el fix (30 Sep) añade el campo explícito `is_opening` a cada nivel (los iniciales `True`, las contra-órdenes lo invierten) y derive legacy solo para niveles ya persistidos al cargar. Únicos tests de pesadilla: `test_grid_pnl_reconciliation.py` (6 casos, el principal **falla pre-fix y pasa post-fix**).
+**La detección por tipo es frágil por diseño y ya no existe**: el fix (30 Sep) añade el campo explícito `is_opening` a cada nivel (los iniciales `True`, las contra-órdenes lo invierten) y deriva la fase de niveles legacy solo al cargar. El arnés de regresión es `test_grid_pnl_reconciliation.py` (6 casos): el caso principal falla con el código anterior (PnL ≈ 2× el real) y pasa con el fix.
 
-### 9.2 Cuantificación (Paso 1, 30 Sep 2026 — BD actual post-reset, 16 fills)
+### 9.2 Cuantificación (Paso 1, 30 Sep 2026 — BD post-reset, 16 fills; reproducida con `reconcile_grid_pnl.py --csv` sobre los mismos fills)
 
-| Par | Ratio booked/real |
-|---|---|
-| BTC/EUR | **1,43×** (inflado) |
-| ETH/EUR | **−2,07×** (PnL real negativo quedó acreditado con signo invertido) |
-| SOL/EUR | **1,83×** (inflado) |
-| **TOTAL** | **0,6597 € acreditados vs 0,2848 € reales → 2,32×** |
+| Par | Ratio booked/real | Lectura |
+|---|---|---|
+| BTC/EUR | **1,43×** | Sin close fantasma: gap por convención del método |
+| ETH/EUR | **−2,07×** | Sin close fantasma: MTM del inventario da denominador negativo |
+| SOL/EUR | **1,83×** | **Único par con closes fantasma (ids 13 y 14)** |
+| **TOTAL** | **0,6597 € acreditados vs 0,2848 € reales → 2,32×** | mezcla bug + método |
 
-Con la contabilidad vigente, el grid acredita **2,32×** el PnL real. El periodo del +3,32% (2-28 Sep) pertenece al ledger anterior al reset y sus fills ya no están en la BD, pero fue producido por la misma lógica errónea: **es igualmente no fiable y ya quedó fuera de la ventana del objetivo por el reset del contador del 29 Sep.**
+**Descomposición honesta del gap (0,6597 − 0,2848 = 0,3749 €):**
+
+1. **Efecto del bug: +0,168 €** — SOL ids 13 y 14 son los re-ingresos que el bug acreditó como cierres (con fees y margen, ≈ +0,195 € en el ledger global). Son los únicos fills no-legítimos: los demás `pnl_eur` grabados (BTC id 7; ETH id 9; SOL ids 5, 11, 12, 15) son cierres reales.
+2. **Convención del propio método: ~+0,207 €** — `Σ pnl_eur` solo recoge cierres con un único fee; `PnL_real(MTM)` descuenta todos los fees (apertura + cierre) y los costes de margen y valora el inventario abierto al último precio. Es el "cota, no valor exacto" que el docstring del script declara.
+
+**Por eso ETH muestra −2,07× y no es el bug**: sus 4 niveles son iniciales o un cierre único — la cadena nunca se extendió, no hay close fantasma. El denominador es negativo por el MTM de dos longs abiertos (id 8 @ 2371,65; id 16 @ 2344,40) marcados al último fill (2344,40) tras una caída del precio, mientras el numerador solo tiene la ganancia realizada del short (id 9, +0,0856). La cifra 2,32× **sobreestima** el efecto del bug: la doble contabilización real (SOL) es ~0,17-0,20 € de los 0,66 € acreditados, y el resto es la cota del método. El +3,32% histórico del periodo 2-28 Sep sigue **no fiable** (esa lógica también grabó re-ingresos como cierres), y ya quedó fuera de la ventana del objetivo por el reset del contador del 29 Sep.
 
 ### 9.3 Estado
 
-- **Fix desplegable**: `pnl_eur` solo se graba en cierres reales; los niveles legacy se re-eti-quetan en `load_state`.
-- **PnL fiable desde**: `2026-09-30` (fecha de despliegue; el campo `pnl_reliable_since` de `GET /api/bot/status` lo refleja).
-- **Re-verificación**: tras unos días de demo con el fix, re-ejecutar `reconcile_grid_pnl.py` — se espera ratio ~1,0×.
+- **Fix aplicado y desplegado (30 Sep 2026, commit `6cc8bea`)**: `pnl_eur` solo se graba en cierres reales; los niveles legacy se re-etiquetan en `load_state`. API `pnl_reliable_since: 2026-09-30` en `GET /api/bot/status`, nota homóloga en el dashboard.
+- **Re-verificación**: tras unos días de demo con el fix, re-ejecutar `reconcile_grid_pnl.py`. **No esperar ratio 1,0×** (el script excluye fees de apertura y margen de `Σ pnl_eur`): el valor de referencia es ~1,3-1,4×; lo que debe desaparecer es la componente de closes fantasma (~0,17 € de diferencia sobre el acreditado). Idealmente, ejecutar en un periodo sin posiciones largas abiertas para quitar el ruido MTM.
 - **BD intocada a propósito**: los `pnl_eur` ya persistidos no se corrigen retroactivamente; se documenta y se mide a partir de la fecha del fix.
 
 ---
