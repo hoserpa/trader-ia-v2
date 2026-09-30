@@ -34,6 +34,30 @@ def margin_short_rollover(notional_eur: float, elapsed_hours: float, rate: float
     """Rollover acumulado de margen, proporcional al tiempo abierto (Kraken cobra cada 4h)."""
     return round(notional_eur * rate * (elapsed_hours / per_hours), 4)
 
+def _is_opening(level: dict) -> bool:
+    """True si el fill de este nivel ABRE una posicion (y no la cierra).
+
+    El campo explicito `is_opening` (bool) se escribe al crear cada nivel y
+    alterna estrictamente en cada hop (apertura -> cierre -> apertura ...).
+    Para niveles legacy persistidos sin el campo (escritos por versiones
+    anteriores del grid), la fase se deriva de la estructura del id: el nivel
+    inicial es un entero (apertura) y cada hop anade "_side_n", asi que la
+    profundidad de hop par == apertura. Nunca detectar por isinstance(id, str):
+    todas las contra-ordenes heredan ids de tipo string, lo que rompia la
+    alternancia y duplicaba el PnL en cada cruce de nivel.
+    """
+    field = level.get("is_opening")
+    if field is not None:
+        return bool(field)
+    lid = level.get("id")
+    if isinstance(lid, int):
+        return True
+    if isinstance(lid, str):
+        depth = max(0, (len(str(lid).split("_")) - 1) // 2)
+        return depth % 2 == 0
+    return True
+
+
 REDIS_GRID_STATE_KEY = "grid:state:{pair}"
 REDIS_GRID_GLOBAL_KEY = "grid:global"
 
@@ -114,7 +138,7 @@ class GridStrategy:
         """Contra-ordenes de recompra abiertas: representan shorts vivas."""
         return [
             l for l in self._state[pair]["levels"]
-            if l["side"] == "buy" and isinstance(l.get("id"), str) and l["status"] == "open"
+            if l["side"] == "buy" and not _is_opening(l) and l["status"] == "open"
         ]
 
     def margin_health(self, current_prices: dict) -> dict:
@@ -132,7 +156,7 @@ class GridStrategy:
             if not px:
                 continue
             for lvl in st.get("levels", []):
-                if lvl.get("status") != "open" or not isinstance(lvl.get("id"), str):
+                if lvl.get("status") != "open" or _is_opening(lvl):
                     continue
                 entry = lvl.get("entry_price") or lvl["price"]
                 if lvl["side"] == "buy":
@@ -545,6 +569,7 @@ class GridStrategy:
             levels.append(
                 {
                     "id": i,
+                    "is_opening": True,
                     "price": round(level_price, 8),
                     "side": side,
                     "amount": round(amount, 8),
@@ -626,7 +651,7 @@ class GridStrategy:
         if level["side"] == "buy":
             sell_price = level["price"] + spacing
             counter_price = sell_price
-            is_close = isinstance(level.get("id"), str)
+            is_close = not _is_opening(level)
             if is_close:
                 margin_cost_eur = margin_short_rollover(
                     entry_price * amount,
@@ -641,6 +666,7 @@ class GridStrategy:
             )
             new_level = {
                 "id": f"{level['id']}_sell_{len(self._state[pair]['levels'])}",
+                "is_opening": not _is_opening(level),
                 "price": round(sell_price, 8),
                 "side": "sell",
                 "amount": amount,
@@ -665,7 +691,7 @@ class GridStrategy:
         else:
             buy_price = level["price"] - spacing
             counter_price = buy_price
-            is_close = isinstance(level.get("id"), str)
+            is_close = not _is_opening(level)
             if not is_close:
                 margin_cost_eur = margin_short_open(fill_price * amount, config.grid.margin_open_fee_pct)
             pnl = (
@@ -675,6 +701,7 @@ class GridStrategy:
             )
             new_level = {
                 "id": f"{level['id']}_buy_{len(self._state[pair]['levels'])}",
+                "is_opening": not _is_opening(level),
                 "price": round(buy_price, 8),
                 "side": "buy",
                 "amount": amount,
@@ -731,7 +758,7 @@ class GridStrategy:
         await self._persist_grid_fill(pair, level, fill_price, pnl, fee_eur)
 
         if self.telegram:
-            is_cycle_close = isinstance(level.get("id"), str)
+            is_cycle_close = not _is_opening(level)
             if is_cycle_close:
                 fees_total = (
                     fee_eur + level.get("fee_eur_opening", 0)
@@ -764,7 +791,7 @@ class GridStrategy:
                     "amount_eur": round(level["amount"] * fill_price, 4),
                     "price": round(fill_price, 8),
                     "fee_eur": round(fee_eur, 4),
-                    "pnl_eur": round(pnl, 4) if isinstance(level.get("id"), str) else None,
+                    "pnl_eur": round(pnl, 4) if not _is_opening(level) else None,
                     "mode": config.trading.mode,
                     "cycle_id": level.get("cycle_id"),
                     "reason": reason,
@@ -905,10 +932,10 @@ class GridStrategy:
             entry = level.get("entry_price", level["price"])
             amount = level["amount"]
             side = level["side"]
-            is_counter = isinstance(level.get("id"), str)
+            is_closing = not _is_opening(level)
             fee_eur = current_price * amount * fee_rate
 
-            if is_counter:
+            if is_closing:
                 if side == "buy":
                     pnl = (entry - current_price) * amount - fee_eur
                 else:
@@ -919,7 +946,7 @@ class GridStrategy:
                 pnl = (entry - current_price) * amount - fee_eur
 
             margin_cost_eur = 0.0
-            if is_counter and side == "buy":
+            if is_closing and side == "buy":
                 margin_cost_eur = margin_short_rollover(
                     entry * amount,
                     _hours_between(
@@ -1074,6 +1101,8 @@ class GridStrategy:
                 except Exception:
                     parsed = None
                 if parsed:
+                    for lvl in parsed.get("levels", []):
+                        lvl.setdefault("is_opening", _is_opening(lvl))
                     self._state[pair] = parsed
 
         raw = await self.redis.get(REDIS_GRID_GLOBAL_KEY)

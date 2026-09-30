@@ -11,6 +11,8 @@
 
 > **Hallazgo principal**: el mecanismo del grid **funciona y es rentable** — 83,2% de acierto, +3,32% en 25,8 días, drawdown del 1,23%. Pero ese resultado **no es atribuible a la config desplegada**: la configuración cambió **3 veces** durante el periodo medido (§3.2) y el término de rebalanceo consume el 93% del PnL del grid con solo 10 observaciones (§4.5). No hay base estadística para el objetivo de 30 días.
 
+> **⚠️ Corrección posterior (30 Sep 2026)**: las cifras de PnL de este informe **no son fiables**. Un bug de detección de apertura/cierre duplicaba el PnL de cada ciclo (§9): con la contabilidad vigente, el histórico +3,32% está inflado y además ya quedó descartado por el reset del contador del 29 Sep. El PnL del sistema solo es fiable a partir del despliegue del fix (2026-09-30, ver §9).
+
 ---
 
 ## 1. Resumen ejecutivo
@@ -552,6 +554,41 @@ El rebalanceo consume ~40% del PnL del grid (5 eventos, −4,40 €) con 0,19 ev
 **Sobre la regla de monitorización**: los datos la respaldan. Hubo **5 rebalanceos en 26 días** (11, 15, 18, 18 y 25 Sep), concentrados en 2 ventanas de tendencia alcista en SOL (15-18 Sep y 18-25 Sep). La semana del **18-25 Sep** concentra **2 eventos**, lo que habría activado la revisión del umbral y del lado short. **La regla es correcta y se habría disparado como estaba previsto; el problema es que el resultado de esa revisión no se aplicó.**
 
 **Contexto de mercado**: el resultado se obtuvo en un periodo de volatilidad elevada. La frecuencia de ciclos —y por tanto el retorno— la pone el mercado, no el bot: E3 produce 12,3 ciclos/día frente a 1,81 de E1. En un mercado de baja volatilidad el mismo grid generará muy pocos ciclos y el retorno se desplomará. **El % mensual no se configura, se hereda de la volatilidad del mercado.** Los 6,0 ciclos/día del promedio no son una propiedad del sistema, son una propiedad de septiembre de 2026.
+
+---
+
+## 9. [30 Sep 2026] Bug de doble contabilización de PnL — hallazgo posterior
+
+> **Este hallazgo es posterior a la redacción del informe (30 Sep 2026) e invalida las cifras de PnL del periodo A1 (§4.1, §1.1, §3.2): el +3,32% histórico no es fiable.** Fue detectado por un agente externo y cuantificado con la herramienta `reconcile_grid_pnl.py` contra la BD de producción.
+
+### 9.1 El bug
+
+En `bot/strategies/grid_strategy.py`, la alternancia apertura/cierre de cada ciclo se detectaba con `is_close = isinstance(level.get("id"), str)`: los niveles iniciales tenían `id` entero y cualquier nivel creado por un fill tenía `id` de tipo string. **El bug: los contra-niveles creados en pasos 2, 3, 4… también tienen `id` string**, así que `is_close` era `True` **siempre**, nunca alternaba. Consecuencia: cada hop a partir del segundo de una cadena grababa `pnl_eur` como si fuese un cierre.
+
+- **PnL duplicado/inventado**: un ciclo de compra→venta acreditaba el spread en **ambos** lados (en la compra de apertura y en la venta de cierre), no solo en el cierre.
+- **Signo invertido posible**: cuando el PnL real del cierre es negativo, la lógica lo duplicaba en la dirección equivocada (caso ETH, ratio **−2,07×**).
+- La contabilidad "cuadraba" (§4.1) porque el mismo valor doblado alimentaba balance y ledger — consistencia interna **no** equivale a realidad.
+- **Afecta también a**: telegram (`is_cycle_close`), persistencia (`pnl_eur` en `_persist_grid_fill`), cierres de short (`_short_covers`), cálculo de `margin_health` y liquidaciones (`_liquidate_pair_positions`).
+
+**La detección por tipo es frágil por diseño y ya no existe**: el fix (30 Sep) añade el campo explícito `is_opening` a cada nivel (los iniciales `True`, las contra-órdenes lo invierten) y derive legacy solo para niveles ya persistidos al cargar. Únicos tests de pesadilla: `test_grid_pnl_reconciliation.py` (6 casos, el principal **falla pre-fix y pasa post-fix**).
+
+### 9.2 Cuantificación (Paso 1, 30 Sep 2026 — BD actual post-reset, 16 fills)
+
+| Par | Ratio booked/real |
+|---|---|
+| BTC/EUR | **1,43×** (inflado) |
+| ETH/EUR | **−2,07×** (PnL real negativo quedó acreditado con signo invertido) |
+| SOL/EUR | **1,83×** (inflado) |
+| **TOTAL** | **0,6597 € acreditados vs 0,2848 € reales → 2,32×** |
+
+Con la contabilidad vigente, el grid acredita **2,32×** el PnL real. El periodo del +3,32% (2-28 Sep) pertenece al ledger anterior al reset y sus fills ya no están en la BD, pero fue producido por la misma lógica errónea: **es igualmente no fiable y ya quedó fuera de la ventana del objetivo por el reset del contador del 29 Sep.**
+
+### 9.3 Estado
+
+- **Fix desplegable**: `pnl_eur` solo se graba en cierres reales; los niveles legacy se re-eti-quetan en `load_state`.
+- **PnL fiable desde**: `2026-09-30` (fecha de despliegue; el campo `pnl_reliable_since` de `GET /api/bot/status` lo refleja).
+- **Re-verificación**: tras unos días de demo con el fix, re-ejecutar `reconcile_grid_pnl.py` — se espera ratio ~1,0×.
+- **BD intocada a propósito**: los `pnl_eur` ya persistidos no se corrigen retroactivamente; se documenta y se mide a partir de la fecha del fix.
 
 ---
 

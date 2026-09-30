@@ -313,6 +313,7 @@ class TradingEngine:
                     "grid_enabled": config.grid.enabled,
                     "grid_pnl": grid_state.get("total_pnl_eur", 0),
                     "grid_trades": grid_state.get("total_grid_trades", 0),
+                    "pnl_reliable_since": "2026-09-30",
                     "last_update": datetime.now(timezone.utc).isoformat(),
                 }
             ),
