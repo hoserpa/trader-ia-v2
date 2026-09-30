@@ -230,6 +230,7 @@ class GridStrategy:
         pnl = (entry - liq_price) * lvl["amount"] - fee_eur - liq_fee
         close_level = {
             "id": f"{lvl['id']}_margincall",
+            "is_opening": False,
             "side": "buy",
             "amount": lvl["amount"],
             "entry_price": entry,
@@ -959,6 +960,7 @@ class GridStrategy:
 
             close_level = {
                 "id": f"{level.get('id')}_liquidated",
+                "is_opening": False,
                 "side": side,
                 "amount": amount,
                 "entry_price": entry,
