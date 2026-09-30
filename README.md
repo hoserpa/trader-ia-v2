@@ -102,22 +102,25 @@ TRADING_MODE=demo
 TRADING_PAIRS=BTC/EUR,ETH/EUR,SOL/EUR
 EXCHANGE=kraken
 
-# Exchange API (solo rellena para modo real; demo usa demo_trader)
+# Exchange API (solo rellena para modo real; demo sin API keys)
 KRAKEN_API_KEY=
 KRAKEN_API_SECRET=
 
 # Grid
 GRID_ENABLED=true
 GRID_PAIRS=BTC/EUR,ETH/EUR,SOL/EUR
-GRID_LEVERAGE=1            # sin leverage (realista, 2-5%/mes)
-GRID_LEVELS=6              # niveles por par (GRID_LEVELS, no GRID_LEVELS_PER_PAIR)
+GRID_LEVERAGE=1            # 1x (realista, 2-5%/mes)
+GRID_LEVELS=15             # niveles por par (15 -> spacing ~1.14% > 2x fee 0.52%)
+GRID_MIN_LOT_VALUE_EUR=8   # >= ordermin real (SOL 0.06 SOL manda)
 GRID_RANGE_PCT=0.08        # rango total del grid (8%)
 GRID_CAPITAL_PCT=0.90      # % del balance en el grid
-# spacing derivado: range/levels ≈ 0.08/6 ≈ 1.33% ...
 GRID_REBALANCE_THRESHOLD=0.08   # desviación para rebalancear
 GRID_STOP_LOSS_PCT=0.05    # stop-loss por fuga de rango
 GRID_POLL_INTERVAL=15      # segundos entre checks
-GRID_ATR_ADAPTIVE=false    # adaptación por volatilidad (desactivada)
+# Margen pata corta (fiel a Kraken): opening fee + rollover 4h
+GRID_MARGIN_OPEN_FEE_PCT=0.0002
+GRID_MARGIN_ROLLOVER_PCT=0.00025
+GRID_MARGIN_ROLLOVER_HOURS=4
 
 # Database
 SQLITE_DB_PATH=/app/data/crypto_trader.db
