@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from uuid import uuid4
 from loguru import logger
+import asyncio
 from config import config
 from trading.portfolio import Portfolio
 from notifications.telegram import _format_duration_between
@@ -344,45 +345,50 @@ class GridStrategy:
         from sqlalchemy import case, func
         from database.models import Trade
 
-        db = SessionLocal()
-        try:
-            for pair in config.grid.pairs:
-                pair_pnl = round(
-                    db.query(func.coalesce(func.sum(
-                        case(
-                            (Trade.pnl_eur.isnot(None), Trade.pnl_eur),
-                            else_=-Trade.fee_eur,
-                        )
-                    ), 0.0))
-                    .filter(Trade.pair == pair)
-                    .scalar(),
-                    4,
-                )
-                state = self._state.get(pair)
-                if not state:
-                    continue
-                state["pnl_eur"] = pair_pnl
-                total_capital_used = max(
-                    sum(l["value_eur"] for l in state.get("levels", []) if l["status"] == "open"),
-                    1,
-                )
-                state["pnl_pct"] = pair_pnl / total_capital_used * 100
-                await self._save_pair_state(pair)
-        finally:
-            db.close()
+        def _load():
+            res = {}
+            db = SessionLocal()
+            try:
+                for pair in config.grid.pairs:
+                    q = (
+                        db.query(Trade.pnl_eur, Trade.fee_eur)
+                        .filter(Trade.pair == pair)
+                        .all()
+                    )
+                    pair_pnl = 0.0
+                    for pnl, fee in q:
+                        if pnl is not None:
+                            pair_pnl += float(pnl or 0.0)
+                        else:
+                            pair_pnl -= float(fee or 0.0)
+                    res[pair] = round(pair_pnl, 4)
+                return res
+            finally:
+                db.close()
+
+        pnls = await asyncio.to_thread(_load)
+        for pair, pair_pnl in pnls.items():
+            state = self._state.get(pair)
+            if not state:
+                continue
+            state["pnl_eur"] = pair_pnl
+            total_capital_used = max(
+                sum(l["value_eur"] for l in state.get("levels", []) if l["status"] == "open"),
+                1,
+            )
+            state["pnl_pct"] = pair_pnl / total_capital_used * 100
+            await self._save_pair_state(pair)
 
     async def _restore_open_positions(self):
-        """Rehidrata en portfolio.positions las posiciones abiertas tras un reinicio.
-
-        Fuente de verdad: la BD SQLite (tabla Trade), persistente e independiente del
-        estado volátil del grid en Redis. Una operacion abierta es aquella agrupada por
-        ciclo que aun no tiene contra-orden de cierre (status 'open').
-        """
         try:
             from database.crud import get_operations
             from database.init_db import SessionLocal
-            with SessionLocal() as db:
-                ops = get_operations(db, limit=500)
+
+            def _get():
+                with SessionLocal() as db:
+                    return get_operations(db, limit=500)
+
+            ops = await asyncio.to_thread(_get)
         except Exception as e:
             logger.warning(f"Grid: no se pudieron restaurar posiciones abiertas: {e}")
             return
@@ -784,19 +790,22 @@ class GridStrategy:
         try:
             from database.crud import create_trade
             from database.init_db import SessionLocal
-            with SessionLocal() as db:
-                create_trade(db, {
-                    "pair": pair,
-                    "side": level["side"].upper(),
-                    "amount_crypto": level["amount"],
-                    "amount_eur": round(level["amount"] * fill_price, 4),
-                    "price": round(fill_price, 8),
-                    "fee_eur": round(fee_eur, 4),
-                    "pnl_eur": round(pnl, 4) if not _is_opening(level) else None,
-                    "mode": config.trading.mode,
-                    "cycle_id": level.get("cycle_id"),
-                    "reason": reason,
-                })
+            def _write():
+                with SessionLocal() as db:
+                    create_trade(db, {
+                        "pair": pair,
+                        "side": level["side"].upper(),
+                        "amount_crypto": level["amount"],
+                        "amount_eur": round(level["amount"] * fill_price, 4),
+                        "price": round(fill_price, 8),
+                        "fee_eur": round(fee_eur, 4),
+                        "pnl_eur": round(pnl, 4) if not _is_opening(level) else None,
+                        "mode": config.trading.mode,
+                        "cycle_id": level.get("cycle_id"),
+                        "reason": reason,
+                    })
+
+            await asyncio.to_thread(_write)
 
             await self.portfolio.update_balance(pnl)
             port = self.portfolio.get()
@@ -865,44 +874,44 @@ class GridStrategy:
         }
 
     async def _rebuild_balance_from_ledger(self) -> None:
-        """Reconstruye el balance desde el ledger de trades (PnL realizado).
-
-        El balance del demo es una cuenta de resultados, no una caja: cada fill
-        acredita el PnL neto (spread − comisiones), sin desplazar nocional. La
-        apertura de un short debita trade-fee + margin_open; como esa pierna se
-        graba con pnl None (es apertura, no ciclo), el rebuild la reconstruye
-        con -fee - margin_open para que coincida con lo acreditado en vivo. El
-        patrimonio real se valora aparte con MTM (total_value_eur = balance +
-        posiciones abiertas): ahí es donde se mide el drawdown del objetivo.
-        Reconstruir desde la BD es idempotente: sin divergencia el resultado
-        coincide con el balance actual.
-        """
         port = self.portfolio.get()
         initial = port.get("initial_balance_eur", port.get("balance_eur", 0))
         from database.init_db import SessionLocal
         from database.models import Trade
-        db = SessionLocal()
-        try:
-            balance = initial
-            for side, pnl, fee, amount, price in db.query(
-                Trade.side, Trade.pnl_eur, Trade.fee_eur, Trade.amount_crypto, Trade.price
-            ).all():
-                if pnl is not None:
-                    balance += pnl
-                else:
-                    balance -= fee
-                    if side == "SELL":
-                        balance -= margin_short_open(
-                            price * amount, config.grid.margin_open_fee_pct
-                        )
-        finally:
-            db.close()
+        from sqlalchemy import case, func
 
-        expected = round(balance, 4)
+        def _calc():
+            db = SessionLocal()
+            try:
+                q = db.query(
+                    Trade.side,
+                    Trade.pnl_eur,
+                    Trade.fee_eur,
+                    Trade.amount_crypto,
+                    Trade.price,
+                ).all()
+                balance = initial
+                for side, pnl, fee, amount, price in q:
+                    if pnl is not None:
+                        balance += float(pnl or 0.0)
+                    else:
+                        balance -= float(fee or 0.0)
+                        if side == "SELL":
+                            balance -= margin_short_open(
+                                (float(price or 0.0)) * (float(amount or 0.0)),
+                                config.grid.margin_open_fee_pct,
+                            )
+                return round(balance, 4)
+            finally:
+                db.close()
+
+        expected = await asyncio.to_thread(_calc)
         current = round(port.get("balance_eur", initial), 4)
         if abs(expected - current) > 0.0001:
             await self.portfolio.update_balance(expected - current)
-            logger.info(f"Grid: balance reconciliado con el ledger: {current:.4f} -> {expected:.4f}")
+            logger.info(
+                f"Grid: balance reconciliado con el ledger: {current:.4f} -> {expected:.4f}"
+            )
 
     def _cleanup_filled_levels(self, pair: str):
         """Elimina filled levels antiguos para evitar crecimiento indefinido."""
