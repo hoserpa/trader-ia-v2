@@ -1,0 +1,126 @@
+"""Estado y cálculos del portafolio."""
+import json
+import os
+from datetime import datetime, date
+
+
+class PortfolioEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, (datetime, date)):
+            return obj.isoformat() + "Z"
+        return super().default(obj)
+
+
+def _json_dumps(obj):
+    return json.dumps(obj, cls=PortfolioEncoder)
+import redis.asyncio as aioredis
+from loguru import logger
+from config import config
+
+REDIS_PORTFOLIO_KEY = "portfolio:state"
+
+
+class Portfolio:
+    """Gestiona el estado en memoria del portafolio (sincronizado con Redis)."""
+
+    def __init__(self, redis_client: aioredis.Redis, initial_balance: float = None):
+        self.redis = redis_client
+
+    async def initialize(self, initial_balance: float = None) -> None:
+        """Inicializa el portafolio. Debe llamarse async."""
+        self._state = await self._load_or_init(initial_balance or config.trading.demo_initial_balance)
+
+    async def _load_or_init(self, initial_balance: float) -> dict:
+        reset_portfolio = os.getenv("RESET_PORTFOLIO", "false").lower() == "true"
+        
+        raw = await self.redis.get(REDIS_PORTFOLIO_KEY)
+        if raw and not reset_portfolio:
+            return json.loads(raw)
+        
+        if raw and reset_portfolio:
+            logger.warning("RESET_PORTFOLIO=true, borrando estado anterior del portafolio...")
+        
+        state = {
+            "balance_eur": initial_balance,
+            "initial_balance_eur": initial_balance,
+            "positions": {},
+            "total_value_eur": initial_balance,
+            "total_pnl_eur": 0.0,
+            "total_pnl_pct": 0.0,
+            "created_at": datetime.utcnow().isoformat() + "Z",
+        }
+        await self._save(state)
+        logger.info(f"Portafolio inicializado con {initial_balance}€")
+        return state
+
+    async def _save(self, state: dict) -> None:
+        await self.redis.set(REDIS_PORTFOLIO_KEY, _json_dumps(state))
+        self._state = state
+
+    def get(self) -> dict:
+        return self._state.copy()
+
+    async def refresh_if_changed(self) -> bool:
+        """Recarga estado desde Redis si detecta cambio externo (reset)."""
+        raw = await self.redis.get(REDIS_PORTFOLIO_KEY)
+        if raw:
+            redis_state = json.loads(raw)
+            if redis_state.get("created_at") != self._state.get("created_at"):
+                self._state = redis_state
+                logger.info("Portfolio recargado tras cambio externo (reset)")
+                return True
+        return False
+
+    async def update_balance(self, delta_eur: float) -> None:
+        self._state["balance_eur"] = round(self._state["balance_eur"] + delta_eur, 4)
+        await self._save(self._state)
+
+    async def add_position(self, pair: str, position_data: dict) -> None:
+        self._state["positions"][pair] = position_data
+        await self._save(self._state)
+
+    async def remove_position(self, pair: str) -> None:
+        self._state["positions"].pop(pair, None)
+        await self._save(self._state)
+
+    async def update_valuations(self, current_prices: dict, open_levels: dict | None = None) -> dict:
+        """Recalcula el valor total del portafolio con precios actuales.
+
+        Soporta posiciones long (PnL = current - invested) y short (PnL = invested - current).
+
+        total_value_eur = balance_eur (PnL realizado) + no realizado de las
+        posiciones abiertas (precio actual − entrada). No se suma el valor
+        completo del nivel porque el balance nunca debitó su nocional: se mide
+        la diferencia vs entrada, que es el drawdown real del objetivo.
+        Sin `open_levels` se mantiene el comportamiento anterior (total = caja),
+        p. ej. en tests o con el grid detenido.
+        """
+        for pair, pos in self._state["positions"].items():
+            price = current_prices.get(pair, pos.get("entry_price", 0))
+            pos["current_price"] = price
+            pos["current_value_eur"] = pos["amount_crypto"] * price
+            exit_fee = pos["current_value_eur"] * config.exchange.taker_fee
+            pos_type = pos.get("position_type", "long")
+            if pos_type == "short":
+                pos["pnl_eur"] = pos["amount_eur_invested"] - pos["current_value_eur"] - exit_fee
+            else:
+                pos["pnl_eur"] = pos["current_value_eur"] - pos["amount_eur_invested"] - exit_fee
+            pos["pnl_pct"] = pos["pnl_eur"] / pos["amount_eur_invested"] * 100 if pos["amount_eur_invested"] > 0 else 0
+
+        equity = self._state["balance_eur"]
+        if open_levels:
+            for pair, levels in open_levels.items():
+                price = current_prices.get(pair)
+                if not price:
+                    continue
+                for lvl in levels:
+                    sign = 1 if lvl["side"] == "buy" else -1
+                    entry = lvl.get("entry_price") or lvl.get("price") or price
+                    equity += sign * lvl["amount"] * (price - entry)
+
+        initial = self._state["initial_balance_eur"]
+        self._state["total_value_eur"] = round(equity, 4)
+        self._state["total_pnl_eur"] = round(equity - initial, 4)
+        self._state["total_pnl_pct"] = round((equity - initial) / initial * 100, 4) if initial > 0 else 0
+        await self._save(self._state)
+        return self._state
