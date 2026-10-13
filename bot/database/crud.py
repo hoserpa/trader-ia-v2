@@ -134,9 +134,10 @@ def _build_round_trips(trades: list[Trade]) -> tuple[list[dict], list[dict]]:
     otra cadena).
 
     Aqui cada cierre se empareja de forma GLOBAL (sin mirar cycle_id) con la
-    apertura real: se deriva la entrada del cierre desde su PnL almacenado y
-    se busca en el pool de aperturas sin usar la del par y precio mas cercano
-    (tolerancia 0.5%). Ninguna apertura se empareja dos veces.
+    apertura real: se usa el entry_price guardado en el cierre (fiable) o,
+    para trades históricos sin él, se deriva del PnL almacenado; y se busca en
+    el pool de aperturas sin usar la del par y precio mas cercano (tolerancia
+    0.5%). Ninguna apertura se empareja dos veces.
 
     - Emparejado a una apertura: el PnL de la fila descuenta las dos comisiones
       (apertura + cierre), asi la suma de filas == PnL neto del balance.
@@ -161,7 +162,8 @@ def _build_round_trips(trades: list[Trade]) -> tuple[list[dict], list[dict]]:
             fill_history.append(t)
             continue
 
-        derived = _derive_entry(t.side, t.price, t.pnl_eur, t.fee_eur, t.amount_crypto)
+        hint = getattr(t, "entry_price", None)
+        derived = hint if hint is not None else _derive_entry(t.side, t.price, t.pnl_eur, t.fee_eur, t.amount_crypto)
         best_idx = -1
         best_diff = TOL
         for idx, (op, used) in enumerate(opens_pool):

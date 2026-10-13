@@ -59,6 +59,11 @@ def init_db() -> sessionmaker:
             conn.execute(text("CREATE INDEX IF NOT EXISTS idx_trades_reason ON trades(reason)"))
         except Exception:
             pass
+        try:
+            conn.execute(text("ALTER TABLE trades ADD COLUMN entry_price FLOAT"))
+            logger.info("Migración: columna entry_price añadida a trades (precio de apertura del cierre)")
+        except Exception:
+            pass
         conn.commit()
 
     logger.info(f"Base de datos inicializada en {config.database.sqlite_path}")

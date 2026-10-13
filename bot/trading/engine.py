@@ -136,6 +136,9 @@ class TradingEngine:
         await self.collector.stop()
         if config.grid.enabled:
             await self.grid_strategy.stop()
+        broker = getattr(self.grid_strategy, "broker", None)
+        if broker is not None and hasattr(broker, "close"):
+            await broker.close()
         await self.telegram.notify_bot_stopped()
         await self._publish_status()
         await self._release_instance_lock()
