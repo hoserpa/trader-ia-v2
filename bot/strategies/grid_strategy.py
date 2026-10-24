@@ -326,6 +326,13 @@ class GridStrategy:
         await self._retrofit_short_unavailable()
 
         await self._rebuild_balance_from_ledger()
+        try:
+            prices = {}
+            for p in config.grid.pairs:
+                prices[p] = self._state.get(p, {}).get("current_price") or await self._get_price(p)
+            await self.portfolio.update_valuations(prices, self.open_positions_for_valuations())
+        except Exception as e:
+            logger.debug(f"No se pudo recalcular patrimonio tras rebuild del ledger: {e}")
 
         has_global = bool(self._global_state) and bool(self._global_state.get("started_at"))
         has_levels = any(self._state.get(p, {}).get("levels") for p in config.grid.pairs)
@@ -343,8 +350,8 @@ class GridStrategy:
 
             port_state = self.portfolio.get()
             total_balance = port_state.get(
-                "total_value_eur",
-                port_state.get("balance_eur", config.trading.demo_initial_balance),
+                "balance_eur",
+                port_state.get("total_value_eur", config.trading.demo_initial_balance),
             )
             total_grid_capital = total_balance * config.grid.capital_pct
             capital_per_pair = total_grid_capital / max(len(config.grid.pairs), 1)
@@ -1330,12 +1337,16 @@ class GridStrategy:
             trades_count = self._state[pair]["total_grid_trades"]
             port_state = self.portfolio.get()
             total_balance = port_state.get(
-                "total_value_eur",
-                port_state.get("balance_eur", config.trading.demo_initial_balance),
+                "balance_eur",
+                port_state.get("total_value_eur", config.trading.demo_initial_balance),
             )
             capital_per_pair = (
                 total_balance * config.grid.capital_pct
                 / max(len(config.grid.pairs), 1)
+            )
+            logger.debug(
+                f"Grid {pair}: capital tras rebalance con balance_eur={port_state.get('balance_eur'):.2f}€ "
+                f"(total_value_eur={port_state.get('total_value_eur'):.2f}€)"
             )
 
             await self._init_pair_grid(pair, current_price, capital_per_pair)
@@ -1355,6 +1366,10 @@ class GridStrategy:
 
             await self._sync_broker_state(pair)
             await self._save_pair_state(pair)
+            try:
+                await self.portfolio.update_valuations({pair: current_price}, self.open_positions_for_valuations())
+            except Exception:
+                pass
             logger.info(
                 f"Grid {pair}: recalculado. Nuevo centro: {current_price:.2f}e"
             )
