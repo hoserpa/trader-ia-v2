@@ -28,8 +28,12 @@ build/
 .pytest_cache/
 .coverage
 htmlcov/
-tests/
 *.test.py
+# Tests locales obsoletos (el módulo trend_following ya no existe)
+tests/test_trend_*.py
+tests/check_trades.py
+tests/telegram_*test.py
+tests/verify_deploy.py
 
 # Datos
 data/

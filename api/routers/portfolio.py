@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 import json
 import redis.asyncio as aioredis
 import sys
@@ -109,7 +109,10 @@ async def reset_history():
     
     db = SessionLocal()
     try:
-        result = reset_portfolio_data(db)
+        try:
+            result = reset_portfolio_data(db)
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc))
         return {"success": True, **result}
     finally:
         db.close()
@@ -130,7 +133,10 @@ async def reset_full():
     
     db = SessionLocal()
     try:
-        result = reset_full_portfolio_data(db)
+        try:
+            result = reset_full_portfolio_data(db)
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc))
         
         initial_balance = float(os.getenv("DEMO_INITIAL_BALANCE", "100.0"))
         from datetime import datetime

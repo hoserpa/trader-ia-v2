@@ -25,6 +25,12 @@ class Portfolio:
 
     def __init__(self, redis_client: aioredis.Redis, initial_balance: float = None):
         self.redis = redis_client
+        self._state = None
+
+    def get(self) -> dict:
+        if self._state is None:
+            raise RuntimeError("Portfolio no inicializado")
+        return self._state.copy()
 
     async def initialize(self, initial_balance: float = None) -> None:
         """Inicializa el portafolio. Debe llamarse async."""
@@ -56,9 +62,6 @@ class Portfolio:
     async def _save(self, state: dict) -> None:
         await self.redis.set(REDIS_PORTFOLIO_KEY, _json_dumps(state))
         self._state = state
-
-    def get(self) -> dict:
-        return self._state.copy()
 
     async def refresh_if_changed(self) -> bool:
         """Recarga estado desde Redis si detecta cambio externo (reset)."""
@@ -114,7 +117,7 @@ class Portfolio:
                 if not price:
                     continue
                 for lvl in levels:
-                    sign = 1 if lvl["side"] == "buy" else -1
+                    sign = 1 if lvl["side"] == "long" else -1
                     entry = lvl.get("entry_price") or lvl.get("price") or price
                     equity += sign * lvl["amount"] * (price - entry)
 

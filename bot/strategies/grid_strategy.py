@@ -1,15 +1,22 @@
 """Estrategia de grid trading para capturar volatilidad lateral.
 
-Coloca Ã³rdenes limit en niveles equidistantes (rango fijo configurado).
+Coloca órdenes limit en niveles equidistantes (rango fijo configurado).
 Cada fill genera la orden opuesta en el nivel adyacente, capturando el spread.
 """
 import json
+import time
 from datetime import datetime, timezone
 from typing import Optional
 from uuid import uuid4
 from loguru import logger
 import asyncio
 from config import config
+from trading.accounting import (
+    margin_short_open,
+    margin_short_rollover,
+    trade_ledger_delta,
+    trade_margin_fee,
+)
 from trading.portfolio import Portfolio
 from notifications.telegram import _format_duration_between
 try:
@@ -33,15 +40,6 @@ def _hours_between(start_ts: str, end_ts: str) -> float:
         return 0.0
 
 
-def margin_short_open(notional_eur: float, rate: float) -> float:
-    """Fee de apertura de margen sobre el importe prestado (Kraken 0.01-0.05%)."""
-    return round(notional_eur * rate, 4)
-
-
-def margin_short_rollover(notional_eur: float, elapsed_hours: float, rate: float, per_hours: float = 4.0) -> float:
-    """Rollover acumulado de margen, proporcional al tiempo abierto (Kraken cobra cada 4h)."""
-    return round(notional_eur * rate * (elapsed_hours / per_hours), 4)
-
 def _is_opening(level: dict) -> bool:
     """True si el fill de este nivel ABRE una posicion (y no la cierra).
 
@@ -64,6 +62,14 @@ def _is_opening(level: dict) -> bool:
         depth = max(0, (len(str(lid).split("_")) - 1) // 2)
         return depth % 2 == 0
     return True
+
+
+def _held_side(level: dict) -> Optional[str]:
+    """'long'/'short' si el nivel es la contra-orden de cierre de una pierna
+    ya ejecutada; None si es una apertura resting (no hay posición)."""
+    if level.get("status") != "open" or _is_opening(level):
+        return None
+    return "long" if level["side"] == "sell" else "short"
 
 
 REDIS_GRID_STATE_KEY = "grid:state:{pair}"
@@ -92,10 +98,12 @@ class GridStrategy:
         self._state: dict[str, dict] = {}
         self._global_state: dict = {}
         self._margin_support: dict = {}
+        self._last_valuation_ts = 0.0
+        self._last_exposure_log: dict[str, float] = {}
 
     @property
     def _fee_rate(self) -> float:
-        """ComisiÃ³n por pierna: maker en demo, taker en real (conservador)."""
+        """Comisión por pierna: maker en demo, taker en real (conservador)."""
         return config.exchange.taker_fee if not config.trading.is_demo() else config.exchange.maker_fee
 
     def set_margin_support(self, support: dict) -> None:
@@ -113,10 +121,10 @@ class GridStrategy:
         return not _is_opening(level)
 
     def _pair_short_ok(self, pair: str) -> bool:
-        """Un par puede abrir shorts solo si la API real permite margen/corto en Ã©l.
+        """Un par puede abrir shorts solo si la API real permite margen/corto en él.
 
         En demo se permite simular shorts donde la API real los soporte (short_ok);
-        en real se exige ademÃ¡s allow_short + margin_enabled."""
+        en real se exige además allow_short + margin_enabled."""
         if not config.trading.is_demo() and not (config.exchange.allow_short and config.exchange.margin_enabled):
             return False
         info = self._margin_support.get(pair, {})
@@ -173,9 +181,9 @@ class GridStrategy:
     def margin_health(self, current_prices: dict) -> dict:
         """Salud de margen de la cuenta (cross margin como Kraken).
 
-        used_margin = Î£ notional/L de las shorts abiertas; equity = balance
+        used_margin = Σ notional/L de las shorts abiertas; equity = balance
         realizado + no realizado de todas las piernas. margin_level = equity /
-        used_margin Ã— 100. Sin shorts abiertas, margin_level es None.
+        used_margin × 100. Sin shorts abiertas, margin_level es None.
         """
         lev = max(config.exchange.margin_leverage, 1)
         used_margin = 0.0
@@ -185,10 +193,11 @@ class GridStrategy:
             if not px:
                 continue
             for lvl in st.get("levels", []):
-                if lvl.get("status") != "open" or _is_opening(lvl):
+                held = _held_side(lvl)
+                if not held:
                     continue
                 entry = lvl.get("entry_price") or lvl["price"]
-                if lvl["side"] == "buy":
+                if held == "short":
                     used_margin += entry * lvl["amount"] / lev
                     unrealized += (entry - px) * lvl["amount"]
                 else:
@@ -216,7 +225,7 @@ class GridStrategy:
     async def _check_short_liquidation(self, pair: str, current_price: float) -> int:
         """Fiel a Kraken: si margin_level <= margin_stop (40%) liquida las shorts.
 
-        El nivel de margen se mide sobre toda la cuenta; la liquidaciÃ³n (orden de
+        El nivel de margen se mide sobre toda la cuenta; la liquidación (orden de
         mercado) cierra al precio actual las contra-ordenes BUY del par en poll,
         debitando el PnL realizado mas la comision de liquidacion (2-3%).
         """
@@ -237,7 +246,7 @@ class GridStrategy:
                     f"MARGIN CALL: margin_level={level_pct:.1f}% <= "
                     f"{config.grid.margin_call_pct:.0%} (leverage "
                     f"{config.exchange.margin_leverage}x, used={health['used_margin_eur']:.2f}e) "
-                    f"Â· shorts de {pair} en riesgo"
+                    f"· shorts de {pair} en riesgo"
                 )
             return 0
         logger.warning(
@@ -253,7 +262,7 @@ class GridStrategy:
         return n
 
     async def _liquidate_short(self, pair: str, lvl: dict, liq_price: float) -> int:
-        """Cierra una short por liquidaciÃ³n de margen (market-like).
+        """Cierra una short por liquidación de margen (market-like).
 
         En demo: cierre virtual al precio indicado.
         En real: orden de mercado real (buy to cover) y se usan sus fills/fees.
@@ -289,6 +298,7 @@ class GridStrategy:
             "cycle_id": lvl.get("cycle_id") or str(uuid4()),
             "fee_eur": fee_eur,
             "margin_rollover_eur": 0.0,
+            "opened_by_trade_id": lvl.get("opened_by_trade_id"),
         }
         lvl["status"] = "filled"
         lvl["filled_at"] = datetime.now(timezone.utc).isoformat()
@@ -302,7 +312,15 @@ class GridStrategy:
         self._global_state["total_margin_fees_eur"] = (
             self._global_state.get("total_margin_fees_eur", 0) + liq_fee
         )
-        await self._persist_grid_fill(pair, close_level, liq_price, pnl, fee_eur, reason="margin_call")
+        await self._persist_grid_fill(
+            pair,
+            close_level,
+            liq_price,
+            pnl,
+            fee_eur,
+            reason="margin_call",
+            exchange_order_id=getattr(execution, "order_id", None),
+        )
         await self.portfolio.remove_position(pair)
         await self._sync_broker_state(pair)
         await self._save_pair_state(pair)
@@ -315,8 +333,8 @@ class GridStrategy:
     async def start(self):
         """Inicia grid en todos los pares configurados.
 
-        Restaura el estado (niveles e histÃ³rico de PnL) desde Redis siempre que
-        exista, independientemente de si el grid quedÃ³ 'enabled'. Reconciliar el
+        Restaura el estado (niveles e histórico de PnL) desde Redis siempre que
+        exista, independientemente de si el grid quedó 'enabled'. Reconciliar el
         PnL total con el balance real acreditado al portfolio evita que, tras un
         reinicio del contenedor, el dashboard muestre un PnL del grid incoherente
         con el saldo acumulado.
@@ -338,7 +356,7 @@ class GridStrategy:
         has_levels = any(self._state.get(p, {}).get("levels") for p in config.grid.pairs)
 
         if not (has_global and has_levels):
-            logger.info("Grid: sin estado histÃ³rico, inicializando niveles desde cero")
+            logger.info("Grid: sin estado histórico, inicializando niveles desde cero")
             self._global_state = {
                 "enabled": True,
                 "pairs": config.grid.pairs,
@@ -348,13 +366,7 @@ class GridStrategy:
                 "started_at": datetime.now(timezone.utc).isoformat(),
             }
 
-            port_state = self.portfolio.get()
-            total_balance = port_state.get(
-                "balance_eur",
-                port_state.get("total_value_eur", config.trading.demo_initial_balance),
-            )
-            total_grid_capital = total_balance * config.grid.capital_pct
-            capital_per_pair = total_grid_capital / max(len(config.grid.pairs), 1)
+            capital_per_pair = self._capital_per_pair()
 
             for pair in config.grid.pairs:
                 if self._state.get(pair, {}).get("levels"):
@@ -370,7 +382,7 @@ class GridStrategy:
                     f"centro={price:.2f}e, capital={capital_per_pair:.2f}e"
                 )
         else:
-            logger.info("Grid: estado recuperado desde Redis, manteniendo niveles e histÃ³rico")
+            logger.info("Grid: estado recuperado desde Redis, manteniendo niveles e histórico")
 
         self._reconcile_with_portfolio()
         await self._reconcile_pair_pnl()
@@ -390,7 +402,7 @@ class GridStrategy:
 
         El patrimonio (total_value_eur = caja + posiciones abiertas) acumula el
         PnL neto de cada fill de forma persistente, mientras que el acumulado del
-        grid podÃ­a perderse en reinicios. Al alinear el total del grid con
+        grid podía perderse en reinicios. Al alinear el total del grid con
         (patrimonio - capital inicial), el dashboard deja de mostrar dos cifras de
         PnL contradictorias. Los fills posteriores incrementan este total de forma
         coherente con el patrimonio.
@@ -405,7 +417,6 @@ class GridStrategy:
     async def _reconcile_pair_pnl(self):
         """Sincroniza el PnL por par en Redis con la suma real de la BD."""
         from database.init_db import SessionLocal
-        from sqlalchemy import case, func
         from database.models import Trade
 
         def _load():
@@ -414,16 +425,28 @@ class GridStrategy:
             try:
                 for pair in config.grid.pairs:
                     q = (
-                        db.query(Trade.pnl_eur, Trade.fee_eur)
+                        db.query(
+                            Trade.side,
+                            Trade.pnl_eur,
+                            Trade.fee_eur,
+                            Trade.margin_fee_eur,
+                            Trade.amount_crypto,
+                            Trade.price,
+                        )
                         .filter(Trade.pair == pair)
                         .all()
                     )
                     pair_pnl = 0.0
-                    for pnl, fee in q:
-                        if pnl is not None:
-                            pair_pnl += float(pnl or 0.0)
-                        else:
-                            pair_pnl -= float(fee or 0.0)
+                    for side, pnl, fee, margin_fee, amount, price in q:
+                        pair_pnl += trade_ledger_delta(
+                            side,
+                            pnl,
+                            fee,
+                            margin_fee,
+                            amount,
+                            price,
+                            config.grid.margin_open_fee_pct,
+                        )
                     res[pair] = round(pair_pnl, 4)
                 return res
             finally:
@@ -441,7 +464,7 @@ class GridStrategy:
             )
             state["pnl_pct"] = pair_pnl / total_capital_used * 100
             await self._sync_broker_state(pair)
-        await self._save_pair_state(pair)
+            await self._save_pair_state(pair)
 
     async def _restore_open_positions(self):
         try:
@@ -471,7 +494,7 @@ class GridStrategy:
             )
 
     async def stop(self):
-        """Pausa todos los grids conservando su estado (niveles e histÃ³rico).
+        """Pausa todos los grids conservando su estado (niveles e histórico).
 
         No borra los niveles ni el PnL: estos se persisten intactos en Redis para que,
         al reiniciar el contenedor, el grid continue donde quedo en lugar de
@@ -481,13 +504,13 @@ class GridStrategy:
         if self._state:
             for pair in list(self._state.keys()):
                 await self._sync_broker_state(pair)
-        await self._save_pair_state(pair)
+                await self._save_pair_state(pair)
         self._global_state["enabled"] = False
         await self._save_global_state()
         logger.info("Grid pausado (niveles conservados para reanudar)")
 
     async def reset(self):
-        """Reinicia el grid en caliente: limpia niveles, histÃ³rico y Redis, y
+        """Reinicia el grid en caliente: limpia niveles, histórico y Redis, y
         reinicializa los niveles desde cero (ciclo limpio sin reiniciar el contenedor)."""
         for pair in list(self._state.keys()):
             await self.redis.delete(REDIS_GRID_STATE_KEY.format(pair=pair))
@@ -503,13 +526,7 @@ class GridStrategy:
         }
         self._running = True
 
-        port_state = self.portfolio.get()
-        total_balance = port_state.get(
-            "total_value_eur",
-            port_state.get("balance_eur", config.trading.demo_initial_balance),
-        )
-        total_grid_capital = total_balance * config.grid.capital_pct
-        capital_per_pair = total_grid_capital / max(len(config.grid.pairs), 1)
+        capital_per_pair = self._capital_per_pair()
         for pair in config.grid.pairs:
             price = await self._get_price(pair)
             if not price:
@@ -518,28 +535,44 @@ class GridStrategy:
         await self._save_global_state()
         logger.info(f"Grid reiniciado en caliente: {len(self._state)} pares desde cero")
 
+    def _capital_per_pair(self) -> float:
+        port = self.portfolio.get()
+        base = port.get("total_value_eur", port.get("balance_eur", config.trading.demo_initial_balance))
+        return base * config.grid.capital_pct / max(len(config.grid.pairs), 1)
+
+    def _open_notional(self) -> float:
+        total = 0.0
+        for st in self._state.values():
+            for lvl in st.get("levels", []):
+                if _held_side(lvl):
+                    total += lvl["amount"] * (lvl.get("entry_price") or lvl["price"])
+        return total
+
+    def _exposure_cap(self) -> float:
+        mult = config.grid.max_exposure_mult
+        if mult <= 0:
+            return float("inf")
+        port = self.portfolio.get()
+        base = port.get("total_value_eur", port.get("balance_eur", 0))
+        return base * config.grid.capital_pct * max(config.grid.leverage, 1) * mult
+
     async def check_orders(self):
-        """Verifica fills, recoloca Ã³rdenes e inicializa pares pendientes."""
+        """Verifica fills, recoloca órdenes e inicializa pares pendientes."""
         if not self._running or not config.grid.enabled:
             return
 
-        port_state = self.portfolio.get()
-        total_balance = port_state.get(
-            "total_value_eur",
-            port_state.get("balance_eur", config.trading.demo_initial_balance),
-        )
-        capital_per_pair = (
-            total_balance * config.grid.capital_pct / max(len(config.grid.pairs), 1)
-        )
+        capital_per_pair = self._capital_per_pair()
+        prices = {}
 
         for pair in config.grid.pairs:
             needs_init = pair not in self._state or not self._state[pair].get("levels")
             if needs_init:
                 price = await self._get_price(pair)
                 if price:
+                    prices[pair] = price
                     await self._init_pair_grid(pair, price, capital_per_pair)
                     logger.info(
-                        f"Grid {pair}: inicializado (tardÃ­o o levels vacÃ­os) @ {price:.2f}e"
+                        f"Grid {pair}: inicializado (tardío o levels vacíos) @ {price:.2f}e"
                     )
                 continue
 
@@ -548,22 +581,40 @@ class GridStrategy:
                 if not current_price:
                     continue
 
+                prices[pair] = current_price
                 self._state[pair]["current_price"] = current_price
                 levels = self._state[pair]["levels"]
 
                 if self._is_real():
                     filled_any = await self._check_real_fills(pair)
+                    await self._place_missing_orders(pair)
                 else:
                     filled_any = False
                     for level in levels:
                         if level["status"] != "open":
                             continue
-                        if level["side"] == "buy" and current_price <= level["price"]:
-                            await self._handle_fill(pair, level, current_price)
-                            filled_any = True
-                        elif level["side"] == "sell" and current_price >= level["price"]:
-                            await self._handle_fill(pair, level, current_price)
-                            filled_any = True
+                        triggers = (
+                            (level["side"] == "buy" and current_price <= level["price"])
+                            or (level["side"] == "sell" and current_price >= level["price"])
+                        )
+                        if not triggers:
+                            continue
+                        if _is_opening(level) and not self._is_real():
+                            if (
+                                self._open_notional()
+                                + level["amount"] * current_price
+                                > self._exposure_cap()
+                            ):
+                                now = time.monotonic()
+                                if now - self._last_exposure_log.get(pair, 0.0) >= 60:
+                                    logger.info(
+                                        f"Grid {pair}: tope de exposicion alcanzado "
+                                        f"({self._open_notional():.2f}e), orden resting"
+                                    )
+                                    self._last_exposure_log[pair] = now
+                                continue
+                        await self._handle_fill(pair, level, current_price)
+                        filled_any = True
 
                 if filled_any:
                     self._cleanup_filled_levels(pair)
@@ -575,6 +626,16 @@ class GridStrategy:
 
             except Exception as e:
                 logger.error(f"Grid error en {pair}: {e}")
+
+        now = time.monotonic()
+        if prices and now - self._last_valuation_ts >= 30:
+            try:
+                await self.portfolio.update_valuations(
+                    prices, self.open_positions_for_valuations()
+                )
+                self._last_valuation_ts = now
+            except Exception as e:
+                logger.debug(f"Grid: no se pudo valorar el patrimonio: {e}")
 
         await self._check_global_stop_loss()
 
@@ -623,18 +684,38 @@ class GridStrategy:
             return
         if res.success and res.order_id:
             level["order_id"] = res.order_id
+            level["place_attempts"] = 0
         else:
+            level["place_attempts"] = int(level.get("place_attempts", 0)) + 1
             logger.error(
                 f"[REAL] orden rechazada {pair} {level['side']} "
                 f"{level['amount']} @ {level['price']}: {res.error}"
             )
+            if level["place_attempts"] >= 5:
+                level["status"] = "canceled"
+                logger.warning(
+                    f"Grid {pair}: nivel cancelado tras {level['place_attempts']} intentos fallidos"
+                )
+                if self.telegram:
+                    try:
+                        await self.telegram.notify_warning(
+                            f"Nivel cancelado {pair} tras {level['place_attempts']} intentos",
+                            warn_key=f"place_fail_{pair}",
+                        )
+                    except Exception:
+                        pass
 
     async def _place_missing_orders(self, pair: str):
         """Coloca ordenes reales para los niveles abiertos aun sin order_id."""
         if not self._is_real():
             return
         for level in self._state.get(pair, {}).get("levels", []):
-            if level["status"] == "open" and not level.get("order_id"):
+            if (
+                level.get("status") == "open"
+                and not level.get("order_id")
+                and level.get("status") != "canceled"
+                and int(level.get("place_attempts", 0)) < 5
+            ):
                 await self._place_level_order(pair, level)
 
     async def _sync_broker_state(self, pair: str):
@@ -684,13 +765,23 @@ class GridStrategy:
             res = await self.broker.fetch_order_result(pair, str(order_id))
             if res is None:
                 continue
-            if res.filled_amount > 0 or res.status == "closed":
+            amount = level["amount"]
+            filled = float(res.filled_amount or 0.0)
+            if res.status == "closed" or filled >= amount * 0.999:
+                if 0 < filled < amount:
+                    level["amount"] = filled
                 fill_price = res.average_price or level["price"]
                 await self._handle_fill(pair, level, fill_price, execution=res)
                 filled_any = True
             elif res.status in ("canceled", "expired", "rejected"):
-                level["status"] = "canceled"
-                filled_any = True
+                if filled > 0:
+                    level["amount"] = filled
+                    fill_price = res.average_price or level["price"]
+                    await self._handle_fill(pair, level, fill_price, execution=res)
+                    filled_any = True
+                else:
+                    level["status"] = "canceled"
+                    filled_any = True
         return filled_any
 
     async def _init_pair_grid(
@@ -725,7 +816,7 @@ class GridStrategy:
         short_ok = self._pair_short_ok(pair)
         levels = []
         for i in range(n_levels):
-            # Media posicion de spacing de turno: con n impar ningÃºn nivel cae
+            # Media posicion de spacing de turno: con n impar ningún nivel cae
             # exactamente en current_price (antes el nivel central se rellenaba
             # en el primer check_orders con pnl = -fee: un ciclo fantasma).
             level_price = current_price + (i - (n_levels - 1) / 2 + 0.5) * spacing
@@ -781,7 +872,7 @@ class GridStrategy:
         """Registra una posicion abierta del grid en el portafolio para el dashboard.
 
         El grid cierra por cruce de nivel (no por SL/TP), por eso stop_loss/take_profit
-        se guardan como None para que el frontend los muestre como 'â€”'.
+        se guardan como None para que el frontend los muestre como '—'.
         """
         await self.portfolio.add_position(pair, {
             "position_type": position_type,
@@ -940,7 +1031,13 @@ class GridStrategy:
 
         await self._sync_broker_state(pair)
         await self._save_pair_state(pair)
-        await self._persist_grid_fill(pair, level, fill_price, pnl, fee_eur)
+        order_id = execution.order_id if execution is not None else level.get("order_id")
+        trade_id = await self._persist_grid_fill(
+            pair, level, fill_price, pnl, fee_eur, exchange_order_id=order_id
+        )
+        if trade_id and _is_opening(level):
+            new_level["opened_by_trade_id"] = trade_id
+            await self._save_pair_state(pair)
 
         if self.telegram:
             is_cycle_close = not _is_opening(level)
@@ -958,50 +1055,101 @@ class GridStrategy:
                     pnl, fees_total, duration,
                 )
 
-    async def _persist_grid_fill(self, pair: str, level: dict, fill_price: float, pnl: float, fee_eur: float, reason: str = "grid"):
+    async def _persist_grid_fill(
+        self,
+        pair: str,
+        level: dict,
+        fill_price: float,
+        pnl: float,
+        fee_eur: float,
+        reason: str = "grid",
+        exchange_order_id: Optional[str] = None,
+    ) -> Optional[int]:
         """Registra cada fill en la BD como trade y acredita el PnL neto al portfolio.
 
         Mantiene el balance_total del portfolio sincronizado con el PnL neto del grid
         (spread - comisiones). Publica portfolio_update por WebSocket para el dashboard.
         `reason` distingue el origen del cierre: "grid" (ciclo normal) o "rebalance".
+        Devuelve el id del trade persistido (None si falla la BD).
         """
+        is_opening = _is_opening(level)
+        payload = {
+            "pair": pair,
+            "side": level["side"].upper(),
+            "amount_crypto": level["amount"],
+            "amount_eur": round(level["amount"] * fill_price, 4),
+            "price": round(fill_price, 8),
+            "fee_eur": round(fee_eur, 4),
+            "pnl_eur": round(pnl, 4) if not is_opening else None,
+            "entry_price": (
+                round(level["entry_price"], 8)
+                if not is_opening and level.get("entry_price") is not None
+                else None
+            ),
+            "mode": config.trading.mode,
+            "cycle_id": level.get("cycle_id"),
+            "reason": reason,
+            "margin_fee_eur": (
+                float(level.get("margin_fees_eur") or 0.0)
+                if is_opening
+                else 0.0
+            ),
+            "open_trade_id": level.get("opened_by_trade_id"),
+            "exchange_order_id": exchange_order_id,
+        }
+
+        trade_id = None
+        db_ok = False
+        last_exc = None
+        for attempt in range(3):
+            try:
+                from database.crud import create_trade
+                from database.init_db import SessionLocal
+
+                def _write(p):
+                    with SessionLocal() as db:
+                        trade = create_trade(db, p)
+                        return getattr(trade, "id", None)
+
+                trade_id = await asyncio.to_thread(_write, payload)
+                db_ok = True
+                break
+            except Exception as e:
+                last_exc = e
+                if attempt < 2:
+                    await asyncio.sleep(0.5 * (2 ** attempt))
+        if not db_ok:
+            logger.error(f"Grid {pair}: no se persistio fill tras 3 intentos: {last_exc}")
+            try:
+                import os
+
+                db_dir = os.path.dirname(os.path.abspath(config.database.sqlite_path)) or "."
+                failed_path = os.path.join(db_dir, "failed_trades.jsonl")
+                with open(failed_path, "a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(payload, default=str) + "\n")
+            except Exception as dump_exc:
+                logger.exception(f"Grid {pair}: no se pudo volcar failed_trades.jsonl: {dump_exc}")
+            return None
+
         try:
-            from database.crud import create_trade
-            from database.init_db import SessionLocal
-            def _write():
-                with SessionLocal() as db:
-                    create_trade(db, {
-                        "pair": pair,
-                        "side": level["side"].upper(),
-                        "amount_crypto": level["amount"],
-                        "amount_eur": round(level["amount"] * fill_price, 4),
-                        "price": round(fill_price, 8),
-                        "fee_eur": round(fee_eur, 4),
-                        "pnl_eur": round(pnl, 4) if not _is_opening(level) else None,
-                        "entry_price": (
-                            round(level["entry_price"], 8)
-                            if not _is_opening(level) and level.get("entry_price") is not None
-                            else None
-                        ),
-                        "mode": config.trading.mode,
-                        "cycle_id": level.get("cycle_id"),
-                        "reason": reason,
-                    })
-
-            await asyncio.to_thread(_write)
-
             await self.portfolio.update_balance(pnl)
-            port = self.portfolio.get()
+        except Exception as e:
+            logger.exception(f"Grid {pair}: no se pudo actualizar el balance tras persistir fill: {e}")
+        port = self.portfolio.get()
 
-            initial = port.get("initial_balance_eur", port.get("balance_eur", 0))
-            new_total = self._equity_eur(port)
-            port["total_value_eur"] = round(new_total, 4)
-            port["total_pnl_eur"] = round(new_total - initial, 4)
-            port["total_pnl_pct"] = (
-                round((new_total - initial) / initial * 100, 4) if initial > 0 else 0
-            )
-            await self.portfolio._save(port)
-
+        initial = port.get("initial_balance_eur", port.get("balance_eur", 0))
+        new_total = self._equity_eur(port)
+        port["total_value_eur"] = round(new_total, 4)
+        port["total_pnl_eur"] = round(new_total - initial, 4)
+        port["total_pnl_pct"] = (
+            round((new_total - initial) / initial * 100, 4) if initial > 0 else 0
+        )
+        if hasattr(self.portfolio, "_save"):
+            try:
+                await self.portfolio._save(port)
+            except Exception as e:
+                logger.exception(f"Grid {pair}: no se pudo guardar el portfolio tras persistir fill: {e}")
+        try:
             await self.redis.publish(
                 "bot:live_updates",
                 json.dumps({
@@ -1018,15 +1166,16 @@ class GridStrategy:
                 }),
             )
         except Exception as e:
-            logger.warning(f"Grid {pair}: no se persistiÃ³ fill: {e}")
+            logger.exception(f"Grid {pair}: no se pudo publicar portfolio_update: {e}")
+        return trade_id
 
     def _equity_eur(self, port: dict) -> float:
         """Patrimonio = PnL realizado + no realizado de niveles abiertos (vs entrada).
 
         El balance (realizado) no incluye los niveles abiertos. Sumar el valor
-        completo del nivel doblarÃ­a la cuenta (el balance nunca lo debitÃ³), asÃ­
-        que solo se suma la diferencia precio-actual âˆ’ entrada: unrealized,
-        que es lo que mide el drawdown del objetivo (â‰¤2%).
+        completo del nivel doblaría la cuenta (el balance nunca lo debitó), así
+        que solo se suma la diferencia precio-actual − entrada: unrealized,
+        que es lo que mide el drawdown del objetivo (≤2%).
         """
         value = port.get("balance_eur", 0.0)
         for pair, st in self._state.items():
@@ -1034,34 +1183,40 @@ class GridStrategy:
             if not px:
                 continue
             for lvl in st.get("levels", []):
-                if lvl.get("status") != "open" or not lvl.get("filled_at"):
+                held = _held_side(lvl)
+                if not held:
                     continue
-                sign = 1 if lvl["side"] == "buy" else -1
                 entry = lvl.get("entry_price") or lvl.get("price") or px
-                value += sign * lvl["amount"] * (px - entry)
+                delta = (px - entry) if held == "long" else (entry - px)
+                value += lvl["amount"] * delta
         return value
 
     def open_positions_for_valuations(self) -> dict:
-        """Niveles ejecutados y sin cerrar (filled), para valorar el patrimonio.
+        """Contra-órdenes de cierre abiertas, para valorar el patrimonio.
 
-        Un nivel 'open' sin filled_at es una orden resting (lÃ­mite colocado,
-        aÃºn no ejecutada): no es una posiciÃ³n y no se valora. Solo cuenta la
-        pierna ejecutada que espera contra-orden de cierre.
+        Una apertura resting (is_opening=True) no es una posición y no se
+        valora. Solo cuenta la pierna ejecutada que espera su cierre.
         """
-        return {
-            pair: [{"side": lvl["side"], "amount": lvl["amount"],
-                    "entry_price": lvl.get("entry_price") or lvl.get("price")}
-                   for lvl in st.get("levels", [])
-                   if lvl.get("status") == "open" and lvl.get("filled_at")]
-            for pair, st in self._state.items()
-        }
+        result = {}
+        for pair, st in self._state.items():
+            held_levels = []
+            for lvl in st.get("levels", []):
+                held = _held_side(lvl)
+                if not held:
+                    continue
+                held_levels.append({
+                    "side": held,
+                    "amount": lvl["amount"],
+                    "entry_price": lvl.get("entry_price") or lvl.get("price"),
+                })
+            result[pair] = held_levels
+        return result
 
     async def _rebuild_balance_from_ledger(self) -> None:
         port = self.portfolio.get()
         initial = port.get("initial_balance_eur", port.get("balance_eur", 0))
         from database.init_db import SessionLocal
         from database.models import Trade
-        from sqlalchemy import case, func
 
         def _calc():
             db = SessionLocal()
@@ -1070,20 +1225,21 @@ class GridStrategy:
                     Trade.side,
                     Trade.pnl_eur,
                     Trade.fee_eur,
+                    Trade.margin_fee_eur,
                     Trade.amount_crypto,
                     Trade.price,
                 ).all()
                 balance = initial
-                for side, pnl, fee, amount, price in q:
-                    if pnl is not None:
-                        balance += float(pnl or 0.0)
-                    else:
-                        balance -= float(fee or 0.0)
-                        if side == "SELL":
-                            balance -= margin_short_open(
-                                (float(price or 0.0)) * (float(amount or 0.0)),
-                                config.grid.margin_open_fee_pct,
-                            )
+                for side, pnl, fee, margin_fee, amount, price in q:
+                    balance += trade_ledger_delta(
+                        side,
+                        pnl,
+                        fee,
+                        margin_fee,
+                        amount,
+                        price,
+                        config.grid.margin_open_fee_pct,
+                    )
                 return round(balance, 4)
             finally:
                 db.close()
@@ -1128,51 +1284,57 @@ class GridStrategy:
                 level["status"] = "canceled"
 
         liquidated = []
+        fully_closed = True
         for level in list(state["levels"]):
             if level["status"] != "open":
                 continue
             entry = level.get("entry_price", level["price"])
-            amount = level["amount"]
+            requested = level["amount"]
             side = level["side"]
 
             execution = None
             if broker:
                 if side == "buy":
-                    execution = await broker.close_short_market(pair, amount, current_price)
+                    execution = await broker.close_short_market(pair, requested, current_price)
                 else:
-                    execution = await broker.close_long_market(pair, amount, current_price)
+                    execution = await broker.close_long_market(pair, requested, current_price)
             if not execution or not execution.success:
                 logger.error(
-                    f"[REAL] no se pudo cerrar posicion {pair} {side} {amount}: "
+                    f"[REAL] no se pudo cerrar posicion {pair} {side} {requested}: "
                     f"{getattr(execution, 'error', None)}"
                 )
+                fully_closed = False
                 continue
 
+            filled = float(getattr(execution, "filled_amount", 0.0) or requested)
+            if filled <= 0:
+                filled = requested
             fill_price = execution.average_price or current_price
-            fee_eur = execution.fee_eur or fill_price * amount * self._fee_rate
+            fee_eur = execution.fee_eur or fill_price * filled * self._fee_rate
             margin_cost_eur = 0.0
             if side == "buy":
                 margin_cost_eur = margin_short_rollover(
-                    entry * amount,
+                    entry * filled,
                     _hours_between(
                         level.get("opened_at"), datetime.now(timezone.utc).isoformat()
                     ),
                     config.grid.margin_rollover_pct,
                     config.grid.margin_rollover_hours,
                 )
-                pnl = (entry - fill_price) * amount - fee_eur - margin_cost_eur
+                pnl = (entry - fill_price) * filled - fee_eur - margin_cost_eur
             else:
-                pnl = (fill_price - entry) * amount - fee_eur
+                pnl = (fill_price - entry) * filled - fee_eur
 
             close_level = {
                 "id": f"{level.get('id')}_liquidated",
                 "is_opening": False,
                 "side": side,
-                "amount": amount,
+                "amount": filled,
                 "entry_price": entry,
                 "cycle_id": level.get("cycle_id") or str(uuid4()),
                 "fee_eur": fee_eur,
                 "margin_rollover_eur": margin_cost_eur,
+                "opened_by_trade_id": level.get("opened_by_trade_id"),
             }
 
             state["pnl_eur"] = state.get("pnl_eur", 0) + pnl
@@ -1192,13 +1354,24 @@ class GridStrategy:
                 self._global_state.get("total_grid_trades", 0) + 1
             )
 
-            level["status"] = "filled"
-            level["filled_at"] = datetime.now(timezone.utc).isoformat()
             level["filled_price"] = fill_price
             await self._persist_grid_fill(
-                pair, close_level, fill_price, pnl, fee_eur, reason="rebalance"
+                pair,
+                close_level,
+                fill_price,
+                pnl,
+                fee_eur,
+                reason="rebalance",
+                exchange_order_id=level.get("order_id"),
             )
             liquidated.append((level.get("id"), side, round(pnl, 4)))
+
+            if filled < requested - 1e-9:
+                level["amount"] = round(requested - filled, 8)
+                fully_closed = False
+            else:
+                level["status"] = "filled"
+                level["filled_at"] = datetime.now(timezone.utc).isoformat()
 
         total_capital_used = max(
             sum(l["value_eur"] for l in state["levels"] if l["status"] == "open"),
@@ -1206,7 +1379,8 @@ class GridStrategy:
         )
         state["pnl_pct"] = state["pnl_eur"] / total_capital_used * 100
 
-        await self.portfolio.remove_position(pair)
+        if fully_closed:
+            await self.portfolio.remove_position(pair)
         await self._save_global_state()
         await self._sync_broker_state(pair)
         await self._save_pair_state(pair)
@@ -1230,33 +1404,31 @@ class GridStrategy:
             return await self._real_liquidate_pair(pair, current_price)
 
         state = self._state[pair]
-        fee_rate = self._fee_rate
+        # Un rebalanceo cierra a mercado: se contabiliza con taker_fee.
+        fee_rate = config.exchange.taker_fee
         liquidated = []
-
 
         for level in state["levels"]:
             if level["status"] != "open":
+                continue
+            if _is_opening(level):
+                # Orden de apertura resting: nunca se ejecutó, no hay posición.
+                level["status"] = "canceled"
                 continue
             if not level.get("cycle_id"):
                 continue
             entry = level.get("entry_price", level["price"])
             amount = level["amount"]
             side = level["side"]
-            is_closing = not _is_opening(level)
             fee_eur = current_price * amount * fee_rate
 
-            if is_closing:
-                if side == "buy":
-                    pnl = (entry - current_price) * amount - fee_eur
-                else:
-                    pnl = (current_price - entry) * amount - fee_eur
-            elif side == "buy":
-                pnl = (current_price - entry) * amount - fee_eur
-            else:
+            if side == "buy":
                 pnl = (entry - current_price) * amount - fee_eur
+            else:
+                pnl = (current_price - entry) * amount - fee_eur
 
             margin_cost_eur = 0.0
-            if is_closing and side == "buy":
+            if side == "buy":
                 margin_cost_eur = margin_short_rollover(
                     entry * amount,
                     _hours_between(
@@ -1276,6 +1448,7 @@ class GridStrategy:
                 "cycle_id": level.get("cycle_id") or str(uuid4()),
                 "fee_eur": fee_eur,
                 "margin_rollover_eur": margin_cost_eur,
+                "opened_by_trade_id": level.get("opened_by_trade_id"),
             }
 
             state["pnl_eur"] = state.get("pnl_eur", 0) + pnl
@@ -1298,7 +1471,15 @@ class GridStrategy:
             level["status"] = "filled"
             level["filled_at"] = datetime.now(timezone.utc).isoformat()
             level["filled_price"] = current_price
-            await self._persist_grid_fill(pair, close_level, current_price, pnl, fee_eur, reason="rebalance")
+            await self._persist_grid_fill(
+                pair,
+                close_level,
+                current_price,
+                pnl,
+                fee_eur,
+                reason="rebalance",
+                exchange_order_id=level.get("order_id"),
+            )
             liquidated.append(
                 (level.get("id"), side, round(pnl, 4))
             )
@@ -1322,7 +1503,7 @@ class GridStrategy:
         return len(liquidated)
 
     async def _check_rebalance(self, pair: str, current_price: float):
-        """Recentra el grid si el precio se desviÃ³ del centro."""
+        """Recentra el grid si el precio se desvió del centro."""
         center = self._state[pair]["center_price"]
         deviation = abs(current_price - center) / center if center > 0 else 0
         threshold = config.grid.rebalance_threshold
@@ -1335,18 +1516,9 @@ class GridStrategy:
             pnl = self._state[pair]["pnl_eur"]
             fees = self._state[pair].get("fees_eur", 0)
             trades_count = self._state[pair]["total_grid_trades"]
-            port_state = self.portfolio.get()
-            total_balance = port_state.get(
-                "balance_eur",
-                port_state.get("total_value_eur", config.trading.demo_initial_balance),
-            )
-            capital_per_pair = (
-                total_balance * config.grid.capital_pct
-                / max(len(config.grid.pairs), 1)
-            )
+            capital_per_pair = self._capital_per_pair()
             logger.debug(
-                f"Grid {pair}: capital tras rebalance con balance_eur={port_state.get('balance_eur'):.2f}€ "
-                f"(total_value_eur={port_state.get('total_value_eur'):.2f}€)"
+                f"Grid {pair}: capital tras rebalance = {capital_per_pair:.2f}€ "
             )
 
             await self._init_pair_grid(pair, current_price, capital_per_pair)
@@ -1375,8 +1547,8 @@ class GridStrategy:
             )
             if self.telegram:
                 await self.telegram.notify_warning(
-                    f"Grid {pair} RECENTRADO por desviaciÃ³n {deviation:.1%}: "
-                    f"{n_liquidated} posiciones liquidadas @ {current_price:.2f}â‚¬ Â· PnL {pnl:+.2f}â‚¬"
+                    f"Grid {pair} RECENTRADO por desviación {deviation:.1%}: "
+                    f"{n_liquidated} posiciones liquidadas @ {current_price:.2f}€ · PnL {pnl:+.2f}€"
                 )
 
     async def _check_global_stop_loss(self):
@@ -1386,8 +1558,8 @@ class GridStrategy:
         mercado (_flatten_all_real) antes de detener.
         """
         mode = (config.trading.mode or "demo").lower()
-        total_pnl = self._global_state.get("total_pnl_eur", 0)
         port_state = self.portfolio.get()
+        total_pnl = port_state.get("total_pnl_eur", 0)
         total_balance = port_state.get(
             "total_value_eur",
             port_state.get("balance_eur", config.trading.demo_initial_balance),
@@ -1401,7 +1573,7 @@ class GridStrategy:
                 )
                 if self.telegram:
                     await self.telegram.notify_warning(
-                        f"Stop-loss global: PnL {pnl_pct:.1%} < -{config.grid.stop_loss_pct:.0%} Â· {total_pnl:+.2f}â‚¬",
+                        f"Stop-loss global: PnL {pnl_pct:.1%} < -{config.grid.stop_loss_pct:.0%} · {total_pnl:+.2f}€",
                         warn_key="global_sl",
                     )
                 if mode == "real":

@@ -42,7 +42,7 @@ class ExchangeConfig:
 
 @dataclass
 class TradingConfig:
-    mode: str = field(default_factory=lambda: os.getenv("TRADING_MODE", "demo"))
+    mode: str = field(default_factory=lambda: os.getenv("TRADING_MODE", "demo").strip().lower())
     pairs: list = field(default_factory=lambda: _split_pairs(os.getenv("TRADING_PAIRS", "BTC/EUR,ETH/EUR,SOL/EUR")))
     base_currency: str = field(default_factory=lambda: os.getenv("BASE_CURRENCY", "EUR"))
     demo_initial_balance: float = field(default_factory=lambda: float(os.getenv("DEMO_INITIAL_BALANCE", "100.0")))
@@ -71,6 +71,7 @@ class GridConfig:
     margin_call_pct: float = field(default_factory=lambda: float(os.getenv("GRID_MARGIN_CALL_PCT", "0.80")))
     margin_stop_pct: float = field(default_factory=lambda: float(os.getenv("GRID_MARGIN_STOP_PCT", "0.40")))
     margin_liq_fee_pct: float = field(default_factory=lambda: float(os.getenv("GRID_MARGIN_LIQ_FEE_PCT", "0.03")))
+    max_exposure_mult: float = field(default_factory=lambda: float(os.getenv("GRID_MAX_EXPOSURE_MULT", "1.0")))
 
 
 @dataclass
@@ -140,6 +141,18 @@ class AppConfig:
         if not (0 < self.grid.margin_call_pct < 1):
             raise ValueError(f"GRID_MARGIN_CALL_PCT inválido: {self.grid.margin_call_pct}. Debe estar entre 0 y 1 (Kraken: 0.80).")
         if not (0 < self.grid.margin_stop_pct <= self.grid.margin_call_pct):
+            pass
+        spacing_pct = 2 * self.grid.range_pct / (self.grid.levels_per_pair - 1)
+        fee = self.exchange.maker_fee if self.trading.is_demo() else self.exchange.taker_fee
+        if spacing_pct <= 2 * fee * 1.5:
+            raise ValueError("El espaciado del grid no cubre las comisiones de ida y vuelta")
+        if self.grid.rebalance_threshold > self.grid.range_pct:
+            import logging
+            logging.getLogger(__name__).warning(
+                "GRID_REBALANCE_THRESHOLD > GRID_RANGE_PCT: el grid acumula posiciones fuera de rango antes de recentrar"
+            )
+        if self.grid.max_exposure_mult < 0:
+            raise ValueError("GRID_MAX_EXPOSURE_MULT debe ser >= 0")
             raise ValueError(f"GRID_MARGIN_STOP_PCT inválido: {self.grid.margin_stop_pct}. Debe estar entre 0 y margin_call (Kraken: 0.40).")
         if not (0 <= self.grid.margin_liq_fee_pct <= 0.10):
             raise ValueError(f"GRID_MARGIN_LIQ_FEE_PCT inválido: {self.grid.margin_liq_fee_pct}. Debe estar entre 0 y 0.10 (Kraken liquida con comision 2-3%).")

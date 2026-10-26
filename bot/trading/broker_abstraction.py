@@ -10,6 +10,9 @@ asumir un fill inexistente.
 """
 from __future__ import annotations
 
+import asyncio
+import time
+import uuid
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -20,7 +23,7 @@ from config import config
 try:
     import ccxt.async_support as ccxt  # type: ignore
 except Exception:  # pragma: no cover
-    import ccxt  # type: ignore
+    ccxt = None  # type: ignore
 
 
 @dataclass
@@ -115,8 +118,12 @@ class RealBroker(BaseBroker):
 
     def __init__(self):
         self._exchange = self._build_exchange()
+        self._markets_loaded = False
 
     def _build_exchange(self):
+        if ccxt is None:
+            logger.error("RealBroker: ccxt.async_support no disponible")
+            return None
         api_key = config.exchange.api_key
         api_secret = config.exchange.api_secret
         if not api_key or not api_secret:
@@ -143,44 +150,75 @@ class RealBroker(BaseBroker):
     def exchange(self):
         return self._exchange
 
+    async def _load_markets(self) -> None:
+        if self._markets_loaded or not self._exchange:
+            return
+        await self._exchange.load_markets()
+        self._markets_loaded = True
+
     def _params(self, margin: bool) -> Dict[str, Any]:
         """Parametros de la orden: leverage solo en piernas de margen (corto)."""
+        if margin and not config.exchange.margin_enabled:
+            return {}
         if margin and config.exchange.margin_enabled:
             return {"leverage": config.exchange.margin_leverage}
         return {}
 
-    def _normalize(self, order: Optional[Dict[str, Any]], fallback_price: float = 0.0) -> ExecutionResult:
+    def _normalize(
+        self,
+        order: Optional[Dict[str, Any]],
+        fallback_price: float = 0.0,
+        pair: Optional[str] = None,
+        order_type: str = "limit",
+    ) -> ExecutionResult:
         if not order:
             return self._reject("respuesta vacia del exchange")
         filled = float(order.get("filled") or 0.0)
         avg = float(order.get("average") or order.get("price") or fallback_price or 0.0)
         fee = order.get("fee") or {}
-        fee_eur = float(fee.get("cost") or 0.0)
-        if not fee_eur and filled and avg:
-            fee_eur = filled * avg * config.exchange.taker_fee
+        fees = order.get("fees") or []
+        if not fee and fees:
+            fee = fees[0]
+        fee_cost = float(fee.get("cost") or 0.0)
+        fee_currency = fee.get("currency")
+        quote = (pair.split("/")[-1] if pair and "/" in pair else config.trading.base_currency)
+        if fee_cost and fee_currency and str(fee_currency).upper() != str(quote).upper():
+            if avg:
+                fee_cost = fee_cost * avg
+            else:
+                fee_cost = 0.0
+        if not fee_cost and filled and avg:
+            rate = config.exchange.maker_fee if order_type == "limit" else config.exchange.taker_fee
+            fee_cost = filled * avg * rate
         status = order.get("status")
-        success = order.get("id") is not None or filled > 0
         return ExecutionResult(
-            success=success,
+            success=order.get("id") is not None or filled > 0,
             filled_amount=filled,
             average_price=avg,
-            fee_eur=round(fee_eur, 8),
+            fee_eur=round(fee_cost, 8),
             order_id=str(order["id"]) if order.get("id") else None,
             status=status,
             raw=order,
         )
 
     def _amount(self, symbol: str, amount: float) -> float:
-        try:
-            return float(self._exchange.amount_to_precision(symbol, amount))
-        except Exception:
-            return amount
+        return float(self._exchange.amount_to_precision(symbol, amount))
 
     def _price(self, symbol: str, price: float) -> float:
-        try:
-            return float(self._exchange.price_to_precision(symbol, price))
-        except Exception:
-            return price
+        return float(self._exchange.price_to_precision(symbol, price))
+
+    async def _await_fill(self, pair: str, order_id: str, timeout: float = 20.0) -> Optional[Dict[str, Any]]:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            await asyncio.sleep(1)
+            order = await self.fetch_order(pair, order_id)
+            if not order:
+                continue
+            filled = float(order.get("filled") or 0.0)
+            status = order.get("status")
+            if status == "closed" or filled > 0:
+                return order
+        return await self.fetch_order(pair, order_id)
 
     async def _create(
         self,
@@ -193,20 +231,51 @@ class RealBroker(BaseBroker):
     ) -> ExecutionResult:
         if not self._exchange:
             return self._reject("exchange no inicializado")
+        if margin and not config.exchange.margin_enabled:
+            return self._reject("margen no habilitado")
+        await self._load_markets()
         symbol = await self.get_symbol(pair)
+        client_id = str(uuid.uuid4())
+        params = dict(self._params(margin))
+        params["clientOrderId"] = client_id
+        try:
+            amount_q = self._amount(symbol, amount)
+            price_q = self._price(symbol, price) if price else None
+        except Exception as e:
+            logger.error(f"[REAL-BROKER] precision {pair}: {e}")
+            return self._reject(str(e))
         try:
             order = await self._exchange.create_order(
                 symbol,
                 order_type,
                 side,
-                self._amount(symbol, amount),
-                self._price(symbol, price) if price else None,
-                self._params(margin),
+                amount_q,
+                price_q,
+                params,
             )
-            return self._normalize(order, price or 0.0)
         except Exception as e:
+            if isinstance(e, (getattr(ccxt, "RequestTimeout", Exception), getattr(ccxt, "NetworkError", Exception))):
+                try:
+                    for open_order in await self.fetch_open_orders(pair):
+                        if str(open_order.get("clientOrderId") or open_order.get("info", {}).get("cl_ord_id")) == client_id:
+                            result = self._normalize(open_order, price or 0.0, pair, order_type)
+                            result.success = result.filled_amount > 0 if order_type == "market" else result.order_id is not None
+                            return result
+                except Exception:
+                    pass
             logger.error(f"[REAL-BROKER] create {order_type} {side} {pair}: {e}")
             return self._reject(str(e))
+
+        result = self._normalize(order, price or 0.0, pair, order_type)
+        if order_type == "market" and result.status != "closed":
+            filled_order = await self._await_fill(pair, result.order_id or "", 20.0)
+            if filled_order:
+                result = self._normalize(filled_order, price or 0.0, pair, order_type)
+        if order_type == "market":
+            result.success = result.filled_amount > 0
+        else:
+            result.success = result.order_id is not None
+        return result
 
     async def create_limit_buy(
         self, pair: str, amount_crypto: float, price: float, margin: bool = False

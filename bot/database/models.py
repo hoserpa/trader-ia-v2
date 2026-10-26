@@ -77,9 +77,12 @@ class Trade(Base):
     exchange_order_id = Column(String(100), nullable=True)
     cycle_id = Column(String(36), nullable=True)
     reason = Column(String(20), nullable=False, default="grid")
+    margin_fee_eur = Column(Float, nullable=True)
+    open_trade_id = Column(Integer, nullable=True)
     position = relationship("Position", back_populates="trades")
     __table_args__ = (
         Index("idx_trades_timestamp", "timestamp"),
         Index("idx_trades_cycle", "cycle_id"),
         Index("idx_trades_reason", "reason"),
+        Index("idx_trades_open_trade", "open_trade_id"),
     )

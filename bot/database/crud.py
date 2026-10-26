@@ -1,10 +1,14 @@
 """Operaciones CRUD sobre la base de datos."""
 import json
+import os
 from datetime import datetime, timedelta
 from typing import Optional
+from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func
+from config import config
 from .models import Candle, PortfolioSnapshot, Position, Trade
+from trading.accounting import trade_ledger_delta, trade_margin_fee
 
 
 def upsert_candles(db: Session, candles: list[dict]) -> int:
@@ -85,19 +89,6 @@ def get_trades(db: Session, limit: int = 50, offset: int = 0) -> list[Trade]:
     )
 
 
-def _group_cycle_keys(trades: list[Trade]) -> tuple[dict, list]:
-    """Agrupa las piernas por ciclo (cycle_id, position_id o id) sin perder orden."""
-    groups: dict = {}
-    order: list = []
-    for t in trades:
-        key = t.cycle_id or (f"pos_{t.position_id}" if t.position_id else f"id_{t.id}")
-        if key not in groups:
-            groups[key] = []
-            order.append(key)
-        groups[key].append(t)
-    return groups, order
-
-
 def _net_pnl(opening_side: str, entry: float, exit: float, qty: float, fee_open: float, fee_close: float) -> float:
     """PnL neto de una ida y vuelta: diferencia de precio por cantidad menos
     las comisiones atribuidas (apertura + cierre; en flips posteriores a la
@@ -133,11 +124,11 @@ def _build_round_trips(trades: list[Trade]) -> tuple[list[dict], list[dict]]:
     irreales (p.ej. 'BUY 90 -> 84 con +N e' cuando 84 era una liquidacion de
     otra cadena).
 
-    Aqui cada cierre se empareja de forma GLOBAL (sin mirar cycle_id) con la
-    apertura real: se usa el entry_price guardado en el cierre (fiable) o,
-    para trades históricos sin él, se deriva del PnL almacenado; y se busca en
-    el pool de aperturas sin usar la del par y precio mas cercano (tolerancia
-    0.5%). Ninguna apertura se empareja dos veces.
+    Cada cierre se empareja primero por `open_trade_id` (vinculo exacto escrito
+    al crear la contra-orden). Para filas antiguas sin vinculo se usa el
+    entry_price guardado en el cierre (fiable) o, si falta, se deriva del PnL
+    almacenado; y se busca en el pool de aperturas sin usar la del par y precio
+    mas cercano (tolerancia 0.5%). Ninguna apertura se empareja dos veces.
 
     - Emparejado a una apertura: el PnL de la fila descuenta las dos comisiones
       (apertura + cierre), asi la suma de filas == PnL neto del balance.
@@ -151,32 +142,47 @@ def _build_round_trips(trades: list[Trade]) -> tuple[list[dict], list[dict]]:
     """
     TOL = 0.005  # tolerancia 0.5% para emparejar precios
     sorted_trades = sorted(trades, key=lambda t: t.timestamp)
-    opens_pool: list[list] = []  # [[trade, used], ...]
+    opens_pool: list[Trade] = []
+    opens_by_key: dict[tuple[str, str], list[Trade]] = {}
+    used_objects: set[int] = set()
+    by_id = {t.id: t for t in sorted_trades if t.id is not None}
     fill_history: list[Trade] = []
     closed_rows: list[dict] = []
     open_rows: list[dict] = []
 
     for t in sorted_trades:
         if t.pnl_eur is None:
-            opens_pool.append([t, False])
+            opens_pool.append(t)
+            opens_by_key.setdefault((t.pair, t.side.upper()), []).append(t)
             fill_history.append(t)
             continue
 
         hint = getattr(t, "entry_price", None)
         derived = hint if hint is not None else _derive_entry(t.side, t.price, t.pnl_eur, t.fee_eur, t.amount_crypto)
-        best_idx = -1
-        best_diff = TOL
-        for idx, (op, used) in enumerate(opens_pool):
-            if used or t.pair != op.pair or t.side.upper() == op.side.upper():
-                continue
-            diff = abs(derived - op.price) / max(op.price, 1e-8)
-            if diff < best_diff:
-                best_diff = diff
-                best_idx = idx
+        linked_id = getattr(t, "open_trade_id", None)
+        linked = by_id.get(linked_id) if linked_id is not None else None
+        op = None
+        if (
+            linked is not None
+            and linked.pnl_eur is None
+            and id(linked) not in used_objects
+            and linked.pair == t.pair
+            and linked.side.upper() != t.side.upper()
+        ):
+            op = linked
+        else:
+            opposite = "BUY" if t.side.upper() == "SELL" else "SELL"
+            best_diff = TOL
+            for candidate in opens_by_key.get((t.pair, opposite), []):
+                if id(candidate) in used_objects:
+                    continue
+                diff = abs(derived - candidate.price) / max(candidate.price, 1e-8)
+                if diff < best_diff:
+                    best_diff = diff
+                    op = candidate
 
-        if best_idx >= 0:
-            op = opens_pool[best_idx][0]
-            opens_pool[best_idx][1] = True
+        if op is not None:
+            used_objects.add(id(op))
             entry = op.price
             entry_fee = op.fee_eur
             entry_ts = op.timestamp
@@ -218,8 +224,8 @@ def _build_round_trips(trades: list[Trade]) -> tuple[list[dict], list[dict]]:
         })
         fill_history.append(t)
 
-    for op, used in opens_pool:
-        if not used:
+    for op in opens_pool:
+        if id(op) not in used_objects:
             open_rows.append({
                 "id": op.cycle_id or f"id_{op.id}",
                 "pair": op.pair,
@@ -274,17 +280,21 @@ def get_stats_summary(db: Session) -> dict:
     """Estadisticas derivadas de las operaciones reales del grid.
 
     El PnL total se computa DIRECTAMENTE desde las piernas (suma de pnl de
-    cierres menos fees de aperturas), por lo que cuadra SIEMPRE con el balance
-    (100 + total_pnl_eur = balance real) independiente del emparejamiento. Las
-    comisiones totales incluyen todas las piernas (aperturas y cierres).
+    cierres menos fees y comisiones de margen de aperturas), por lo que cuadra
+    SIEMPRE con el balance (100 + total_pnl_eur = balance real) independiente
+    del emparejamiento. Las comisiones totales incluyen todas las piernas
+    (aperturas y cierres); las de margen se reportan aparte.
     """
-    today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    tz = ZoneInfo(os.getenv("DISPLAY_TIMEZONE", "UTC"))
+    today = (
+        datetime.now(tz)
+        .replace(hour=0, minute=0, second=0, microsecond=0)
+        .astimezone(ZoneInfo("UTC"))
+        .replace(tzinfo=None)
+    )
 
     trades = db.query(Trade).order_by(Trade.timestamp.asc()).all()
-    _, order = _group_cycle_keys(trades)
     closed_rows, open_rows = _build_round_trips(trades)
-    opens = [x for x in trades if x.pnl_eur is None]
-    closes = [x for x in trades if x.pnl_eur is not None]
 
     pnls = [r["pnl_eur"] for r in closed_rows]
     pnl_pcts = []
@@ -312,9 +322,37 @@ def get_stats_summary(db: Session) -> dict:
     losses = sum(1 for p in pnls if p < 0)
     flat = sum(1 for p in pnls if p == 0)
     # PnL neto real: cada cierre acredita (delta - fee_cierre) y cada apertura
-    # resta su fee. Cuadra SIEMPRE con el balance (100 + total_pnl = balance),
+    # resta su fee y su comision de margen. Cuadra SIEMPRE con el balance,
     # independiente del emparejamiento de filas de _build_round_trips.
-    total_pnl = round(sum(c.pnl_eur for c in closes) - sum(o.fee_eur for o in opens), 4)
+    total_margin_fees = round(
+        sum(
+            trade_margin_fee(
+                t.side,
+                t.pnl_eur,
+                t.margin_fee_eur,
+                t.amount_crypto,
+                t.price,
+                config.grid.margin_open_fee_pct,
+            )
+            for t in trades
+        ),
+        4,
+    )
+    total_pnl = round(
+        sum(
+            trade_ledger_delta(
+                t.side,
+                t.pnl_eur,
+                t.fee_eur,
+                t.margin_fee_eur,
+                t.amount_crypto,
+                t.price,
+                config.grid.margin_open_fee_pct,
+            )
+            for t in trades
+        ),
+        4,
+    )
     win_rate = (wins / len(pnls) * 100) if pnls else 0
     avg_pnl_pct = round(sum(pnl_pcts) / len(pnl_pcts), 2) if pnl_pcts else 0.0
 
@@ -339,6 +377,7 @@ def get_stats_summary(db: Session) -> dict:
         "avg_pnl_pct": avg_pnl_pct,
         "total_pnl_eur": total_pnl,
         "total_fees_eur": total_fees,
+        "total_margin_fees_eur": total_margin_fees,
         "trades_today": len(today_pnls),
         "today_operations": len(today_pnls),
         "today_closed": len(today_pnls),
@@ -371,7 +410,14 @@ def calculate_max_drawdown_from_snapshots(db: Session) -> float:
 
 def reset_portfolio_data(db: Session) -> dict:
     """Resetea el historial del portfolio (snapshots, trades, posiciones).
-    Mantiene posiciones abiertas y el balance en Redis."""
+    Mantiene posiciones abiertas y el balance en Redis.
+
+    Solo permitido en modo demo: en modo real, los reseteos del ledger estan
+    prohibidos. Tras el reset, el siguiente arranque reconstruye el balance
+    desde el ledger vacio (vuelve al balance inicial).
+    """
+    if not config.trading.is_demo():
+        raise PermissionError("Los reseteos de ledger solo estan permitidos en modo demo")
     deleted_snapshots = db.query(PortfolioSnapshot).delete()
     deleted_trades = db.query(Trade).delete()
     deleted_positions = db.query(Position).filter_by(status="closed").delete()
@@ -386,6 +432,8 @@ def reset_portfolio_data(db: Session) -> dict:
 def reset_full_portfolio_data(db: Session) -> dict:
     """Reset completo: borra todo (snapshots, trades, posiciones ABIERTAS Y CERRADAS, stats).
     Para uso exclusivo en modo DEMO."""
+    if not config.trading.is_demo():
+        raise PermissionError("Los reseteos de ledger solo estan permitidos en modo demo")
     deleted_snapshots = db.query(PortfolioSnapshot).delete()
     deleted_trades = db.query(Trade).delete()
     deleted_positions = db.query(Position).delete()
