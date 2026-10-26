@@ -398,8 +398,6 @@ class GridStrategy:
 
             await _asyncio.to_thread(_write)
         except Exception as e:
-            from loguru import logger
-
             logger.warning(f"Grid: no se pudo registrar config_history: {e}")
 
     async def start(self):
@@ -1686,8 +1684,6 @@ class GridStrategy:
 
                 await _asyncio.to_thread(_write)
             except Exception as e:
-                from loguru import logger
-
                 logger.warning(f"Grid {pair}: no se pudo registrar rebalance_event: {e}")
             pnl = pnl_after
             fees = fees_after

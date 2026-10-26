@@ -1,16 +1,25 @@
-"""Matriz de experimentos (esqueleto)."""
+"""Matriz de experimentos."""
 import argparse
+import asyncio
+import json
+from datetime import datetime
+
+from tools.backtest.harness import run_backtest
+from tools.backtest.metrics import compute_metrics
+
+
+def run_e0():
+    res = asyncio.run(run_backtest(start="2025-10-01", end="2026-09-30", resolution="5m"))
+    m = compute_metrics(res["equity"], res["trades"], [])
+    print("E0", m)
+    return m
 
 
 def run_all():
-    print("E0 baseline")
-    print("E1 rango x umbral x niveles")
-    print("E2 V1 shift")
-    print("E3 V2 trend filter")
-    print("E4 V3 long-only")
-    print("E5 V4/V5")
-    print("E6 combinacion")
-    print("Implementar barridos con tools.backtest.harness")
+    results = {"E0": run_e0()}
+    with open("reports/experiments_latest.json", "w", encoding="utf-8") as f:
+        json.dump(results, f, indent=2, default=str)
+    print("done")
 
 
 if __name__ == "__main__":

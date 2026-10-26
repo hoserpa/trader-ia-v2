@@ -18,4 +18,3 @@ def compute_metrics(equity_series, trades, rebalances):
         "n_trades": len(trades),
         "n_rebalances": len(rebalances),
     }
-PY
