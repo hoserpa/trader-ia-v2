@@ -58,6 +58,9 @@ def main():
     ap.add_argument("--end", required=True, help="YYYY-MM")
     ap.add_argument("--out", default="data/history")
     args = ap.parse_args()
+    import gzip
+    import zipfile
+
     out = Path(args.out)
     start = date.fromisoformat(args.start + "-01")
     end = date.fromisoformat(args.end + "-01")
@@ -72,8 +75,6 @@ def main():
                 print("skip", pair, y, m, e)
                 continue
             # accumulate
-            import zipfile, gzip
-
             with zipfile.ZipFile(zp) as z:
                 for member in z.namelist():
                     with z.open(member) as f:
@@ -102,4 +103,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-PY

@@ -36,8 +36,8 @@ tests/telegram_*test.py
 tests/verify_deploy.py
 
 # Datos
- data/
- data/history/
+data/
+data/history/
 *.db
 *.db-journal
 *.parquet
