@@ -72,6 +72,12 @@ class GridConfig:
     margin_stop_pct: float = field(default_factory=lambda: float(os.getenv("GRID_MARGIN_STOP_PCT", "0.40")))
     margin_liq_fee_pct: float = field(default_factory=lambda: float(os.getenv("GRID_MARGIN_LIQ_FEE_PCT", "0.03")))
     max_exposure_mult: float = field(default_factory=lambda: float(os.getenv("GRID_MAX_EXPOSURE_MULT", "1.0")))
+    rebalance_mode: str = field(default_factory=lambda: os.getenv("GRID_REBALANCE_MODE", "liquidate"))
+    trend_filter: str = field(default_factory=lambda: os.getenv("GRID_TREND_FILTER", "off"))
+    legacy_max_age_hours: float = field(default_factory=lambda: float(os.getenv("GRID_LEGACY_MAX_AGE_HOURS", "72")))
+    legacy_stop_pct: float = field(default_factory=lambda: float(os.getenv("GRID_LEGACY_STOP_PCT", "0.08")))
+    atr_adaptive: bool = field(default_factory=lambda: os.getenv("GRID_ATR_ADAPTIVE", "false").lower() == "true")
+    lot_pct_of_equity: float = field(default_factory=lambda: float(os.getenv("GRID_LOT_PCT_OF_EQUITY", "0")))
 
 
 @dataclass
@@ -153,6 +159,16 @@ class AppConfig:
             )
         if self.grid.max_exposure_mult < 0:
             raise ValueError("GRID_MAX_EXPOSURE_MULT debe ser >= 0")
+        if self.grid.rebalance_mode not in ("liquidate", "shift"):
+            raise ValueError("GRID_REBALANCE_MODE debe ser 'liquidate' o 'shift'")
+        if self.grid.trend_filter not in ("off", "ema", "adx"):
+            raise ValueError("GRID_TREND_FILTER debe ser 'off', 'ema' o 'adx'")
+        if self.grid.legacy_max_age_hours <= 0:
+            raise ValueError("GRID_LEGACY_MAX_AGE_HOURS debe ser > 0")
+        if self.grid.legacy_stop_pct <= 0:
+            raise ValueError("GRID_LEGACY_STOP_PCT debe ser > 0")
+        if self.grid.lot_pct_of_equity < 0:
+            raise ValueError("GRID_LOT_PCT_OF_EQUITY debe ser >= 0")
             raise ValueError(f"GRID_MARGIN_STOP_PCT inválido: {self.grid.margin_stop_pct}. Debe estar entre 0 y margin_call (Kraken: 0.40).")
         if not (0 <= self.grid.margin_liq_fee_pct <= 0.10):
             raise ValueError(f"GRID_MARGIN_LIQ_FEE_PCT inválido: {self.grid.margin_liq_fee_pct}. Debe estar entre 0 y 0.10 (Kraken liquida con comision 2-3%).")

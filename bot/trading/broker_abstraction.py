@@ -20,10 +20,7 @@ from loguru import logger
 
 from config import config
 
-try:
-    import ccxt.async_support as ccxt  # type: ignore
-except Exception:  # pragma: no cover
-    ccxt = None  # type: ignore
+ccxt = None  # type: ignore  # se importa de forma perezosa en RealBroker
 
 
 @dataclass
@@ -117,12 +114,19 @@ class RealBroker(BaseBroker):
     mode = "real"
 
     def __init__(self):
+        self._ccxt = None
         self._exchange = self._build_exchange()
         self._markets_loaded = False
 
     def _build_exchange(self):
-        if ccxt is None:
-            logger.error("RealBroker: ccxt.async_support no disponible")
+        global ccxt
+        try:
+            import ccxt.async_support as _ccxt  # type: ignore
+
+            self._ccxt = _ccxt
+            ccxt = _ccxt
+        except Exception as e:  # pragma: no cover
+            logger.error(f"RealBroker: ccxt.async_support no disponible: {e}")
             return None
         api_key = config.exchange.api_key
         api_secret = config.exchange.api_secret
@@ -254,7 +258,7 @@ class RealBroker(BaseBroker):
                 params,
             )
         except Exception as e:
-            if isinstance(e, (getattr(ccxt, "RequestTimeout", Exception), getattr(ccxt, "NetworkError", Exception))):
+            if isinstance(e, (getattr(self._ccxt, "RequestTimeout", Exception), getattr(self._ccxt, "NetworkError", Exception))):
                 try:
                     for open_order in await self.fetch_open_orders(pair):
                         if str(open_order.get("clientOrderId") or open_order.get("info", {}).get("cl_ord_id")) == client_id:

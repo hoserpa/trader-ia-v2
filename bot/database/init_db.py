@@ -38,8 +38,7 @@ def _ensure_column(conn, table: str, column: str, ddl: str) -> None:
     logger.info(f"Migración: columna {column} añadida a {table}")
 
 
-def init_db() -> sessionmaker:
-    engine = get_engine()
+def init_schema(engine) -> None:
     Base.metadata.create_all(engine)
 
     with engine.connect() as conn:
@@ -57,13 +56,35 @@ def init_db() -> sessionmaker:
         _ensure_column(conn, "trades", "margin_fee_eur", "margin_fee_eur FLOAT")
         _ensure_column(conn, "trades", "open_trade_id", "open_trade_id INTEGER")
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_trades_open_trade ON trades(open_trade_id)"))
+        _ensure_column(conn, "trades", "config_hash", "config_hash VARCHAR(64)")
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_trades_config_hash ON trades(config_hash)"))
         conn.commit()
 
     logger.info(f"Base de datos inicializada en {config.database.sqlite_path}")
-    return sessionmaker(bind=engine, autocommit=False, autoflush=False)
 
 
-SessionLocal = init_db()
+_engine = None
+_session_factory = None
+_session_factory_path = None
+
+
+def get_session_factory():
+    global _engine, _session_factory, _session_factory_path
+    current_path = config.database.sqlite_path
+    if _session_factory is None or _session_factory_path != current_path:
+        _engine = get_engine()
+        init_schema(_engine)
+        _session_factory = sessionmaker(bind=_engine, autocommit=False, autoflush=False)
+        _session_factory_path = current_path
+    return _session_factory
+
+
+def init_db() -> sessionmaker:
+    return get_session_factory()
+
+
+def SessionLocal():
+    return get_session_factory()()
 
 
 def get_db() -> Session:

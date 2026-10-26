@@ -1,0 +1,1 @@
+"""Herramientas de backtest (solo desarrollo, no se despliegan en la Pi)."""

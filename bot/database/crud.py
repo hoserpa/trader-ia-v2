@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func
 from config import config
-from .models import Candle, PortfolioSnapshot, Position, Trade
+from .models import Candle, PortfolioSnapshot, Position, Trade, ConfigHistory, RebalanceEvent
 from trading.accounting import trade_ledger_delta, trade_margin_fee
 
 
@@ -77,6 +77,40 @@ def create_trade(db: Session, trade_data: dict) -> Trade:
     db.commit()
     db.refresh(trade)
     return trade
+
+
+def create_config_history(db: Session, data: dict) -> ConfigHistory:
+    obj = ConfigHistory(**data)
+    db.add(obj)
+    db.commit()
+    db.refresh(obj)
+    return obj
+
+
+def get_config_history(db: Session, limit: int = 50) -> list[ConfigHistory]:
+    return (
+        db.query(ConfigHistory)
+        .order_by(ConfigHistory.ts.desc())
+        .limit(limit)
+        .all()
+    )
+
+
+def create_rebalance_event(db: Session, data: dict) -> RebalanceEvent:
+    obj = RebalanceEvent(**data)
+    db.add(obj)
+    db.commit()
+    db.refresh(obj)
+    return obj
+
+
+def get_rebalance_events(db: Session, limit: int = 50) -> list[RebalanceEvent]:
+    return (
+        db.query(RebalanceEvent)
+        .order_by(RebalanceEvent.ts.desc())
+        .limit(limit)
+        .all()
+    )
 
 
 def get_trades(db: Session, limit: int = 50, offset: int = 0) -> list[Trade]:
@@ -363,6 +397,31 @@ def get_stats_summary(db: Session) -> dict:
     worst_trade = min(pnls) if pnls else 0
     max_drawdown = calculate_max_drawdown_from_snapshots(db)
 
+    rebalance_pnl = round(
+        sum(r["pnl_eur"] for r in closed_rows if r.get("exit_reason") == "rebalance"), 4
+    )
+    grid_close_pnl = round(
+        sum(r["pnl_eur"] for r in closed_rows if r.get("exit_reason") == "grid"), 4
+    )
+    rebalance_drag_pct = (
+        round(-rebalance_pnl / grid_close_pnl * 100, 2) if grid_close_pnl else 0.0
+    )
+
+    max_open_notional = 0.0
+    max_open_notional_pct = 0.0
+    for snap in db.query(PortfolioSnapshot).all():
+        try:
+            positions = json.loads(snap.positions_json or "{}")
+        except (TypeError, ValueError):
+            positions = {}
+        notional = 0.0
+        for pos in positions.values():
+            notional += float(pos.get("current_value_eur") or 0.0)
+        if notional > max_open_notional:
+            max_open_notional = notional
+            if snap.total_value_eur:
+                max_open_notional_pct = notional / snap.total_value_eur * 100
+
     return {
         "total_trades": total_trades,
         "total_operations": total_ops,
@@ -378,6 +437,10 @@ def get_stats_summary(db: Session) -> dict:
         "total_pnl_eur": total_pnl,
         "total_fees_eur": total_fees,
         "total_margin_fees_eur": total_margin_fees,
+        "rebalance_drag_pct": rebalance_drag_pct,
+        "max_open_notional_eur": round(max_open_notional, 4),
+        "max_open_notional_pct": round(max_open_notional_pct, 2),
+        "equity_max_drawdown_pct": max_drawdown,
         "trades_today": len(today_pnls),
         "today_operations": len(today_pnls),
         "today_closed": len(today_pnls),

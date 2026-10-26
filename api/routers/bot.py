@@ -25,6 +25,57 @@ async def grid_status():
     return {"enabled": False}
 
 
+@router.get("/config-history")
+async def config_history(limit: int = 50):
+    from database.crud import get_config_history
+    from database.init_db import SessionLocal
+
+    db = SessionLocal()
+    try:
+        rows = get_config_history(db, limit=limit)
+        return [
+            {
+                "id": r.id,
+                "ts": r.ts.isoformat() if r.ts else None,
+                "config_hash": r.config_hash,
+                "source": r.source,
+                "config": json.loads(r.config_json),
+            }
+            for r in rows
+        ]
+    finally:
+        db.close()
+
+
+@router.get("/rebalances")
+async def rebalances(limit: int = 50):
+    from database.crud import get_rebalance_events
+    from database.init_db import SessionLocal
+
+    db = SessionLocal()
+    try:
+        rows = get_rebalance_events(db, limit=limit)
+        return [
+            {
+                "id": r.id,
+                "ts": r.ts.isoformat() if r.ts else None,
+                "pair": r.pair,
+                "price": r.price,
+                "center_old": r.center_old,
+                "center_new": r.center_new,
+                "deviation_pct": r.deviation_pct,
+                "positions_closed": r.positions_closed,
+                "resting_cancelled": r.resting_cancelled,
+                "realized_pnl_eur": r.realized_pnl_eur,
+                "fees_eur": r.fees_eur,
+                "config_hash": r.config_hash,
+            }
+            for r in rows
+        ]
+    finally:
+        db.close()
+
+
 @router.get("/config")
 async def bot_config():
     from config import config

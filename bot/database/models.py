@@ -79,10 +79,39 @@ class Trade(Base):
     reason = Column(String(20), nullable=False, default="grid")
     margin_fee_eur = Column(Float, nullable=True)
     open_trade_id = Column(Integer, nullable=True)
+    config_hash = Column(String(64), nullable=True)
     position = relationship("Position", back_populates="trades")
     __table_args__ = (
         Index("idx_trades_timestamp", "timestamp"),
         Index("idx_trades_cycle", "cycle_id"),
         Index("idx_trades_reason", "reason"),
         Index("idx_trades_open_trade", "open_trade_id"),
+        Index("idx_trades_config_hash", "config_hash"),
     )
+
+
+class ConfigHistory(Base):
+    __tablename__ = "config_history"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    ts = Column(DateTime, nullable=False, default=datetime.utcnow)
+    config_hash = Column(String(64), nullable=False)
+    config_json = Column(Text, nullable=False)
+    source = Column(String(16), nullable=False, default="startup")
+    __table_args__ = (Index("idx_config_history_ts", "ts"),)
+
+
+class RebalanceEvent(Base):
+    __tablename__ = "rebalance_events"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    ts = Column(DateTime, nullable=False, default=datetime.utcnow)
+    pair = Column(String(20), nullable=False)
+    price = Column(Float, nullable=False)
+    center_old = Column(Float, nullable=True)
+    center_new = Column(Float, nullable=True)
+    deviation_pct = Column(Float, nullable=True)
+    positions_closed = Column(Integer, nullable=False, default=0)
+    resting_cancelled = Column(Integer, nullable=False, default=0)
+    realized_pnl_eur = Column(Float, nullable=True)
+    fees_eur = Column(Float, nullable=True)
+    config_hash = Column(String(64), nullable=True)
+    __table_args__ = (Index("idx_rebalance_events_ts", "ts"), Index("idx_rebalance_events_pair", "pair"),)
