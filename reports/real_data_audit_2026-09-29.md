@@ -18,7 +18,7 @@ Modo de todos los trades: `demo`. No se han inventado ni interpolado datos.
 - Posiciones abiertas actuales: 10 (nocional ~80 EUR).
 - Trades `rebalance` fantasma detectados: 11, con PnL inflado de +7.6232 EUR.
 
-Corrección por filas fantasma: PnL realizado real ≈ 262.0994 - 7.6232 = 254.4762 EUR, es decir +4.4762 EUR (+1.79%). Este ajuste es el principal hallazgo del informe.
+Corrección por filas fantasma (11 filas): PnL realizado pasa de +12.0994 EUR a +5.0732 EUR. Este ajuste es el principal hallazgo del informe.
 
 ## Desglose por par
 
