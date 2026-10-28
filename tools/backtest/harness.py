@@ -55,18 +55,14 @@ async def run_backtest(config_overrides=None, start=None, end=None, resolution="
         data = _load_data(start, end, resolution)
 
     pairs = config.grid.pairs
-    # aligned timestamps
     frames = {p: data[p].copy() for p in pairs}
     for p in pairs:
         frames[p]["ts"] = pd.to_datetime(frames[p]["ts"], utc=True)
-    # common index
     common = frames[pairs[0]]["ts"].tolist()
     for p in pairs[1:]:
         common = [t for t in common if t in set(frames[p]["ts"].tolist())]
-    # sort
     common = sorted(set(common))
 
-    # initial price
     first_ts = common[0]
     for p in pairs:
         row = frames[p][frames[p]["ts"] == first_ts].iloc[0]
@@ -79,18 +75,30 @@ async def run_backtest(config_overrides=None, start=None, end=None, resolution="
     await grid.start()
 
     equity = []
+
+    def bar_prices(row):
+        o = float(row["open"]); h = float(row["high"]); l = float(row["low"]); c = float(row["close"])
+        if c >= o:
+            return [o, l, h, c]
+        return [o, h, l, c]
+
     for ts in common:
-        for p in pairs:
-            row = frames[p][frames[p]["ts"] == ts]
-            if row.empty:
-                continue
-            close = float(row.iloc[0]["close"])
-            await redis.set(f"price:{p}", str(close))
-        if hasattr(ts, "to_pydatetime"):
-            clock.set(ts.to_pydatetime())
-        else:
-            clock.set(ts)
-        await grid.check_orders()
+        rows = {p: frames[p][frames[p]["ts"] == ts].iloc[0] for p in pairs}
+        seq = [bar_prices(rows[p]) for p in pairs] if fill_model == "ohlc" else None
+        n_steps = 4 if fill_model == "ohlc" else 1
+        for step in range(n_steps):
+            for idx, p in enumerate(pairs):
+                if fill_model == "ohlc":
+                    price = seq[idx][step]
+                else:
+                    price = float(rows[p]["close"])
+                await redis.set(f"price:{p}", str(price))
+            if hasattr(ts, "to_pydatetime"):
+                base = ts.to_pydatetime()
+            else:
+                base = ts
+            clock.set(base + timedelta(seconds=step))
+            await grid.check_orders()
         st = portfolio.get()
         equity.append(st.get("total_value_eur", st.get("balance_eur", initial_balance)))
 

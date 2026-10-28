@@ -57,6 +57,7 @@ logs/
 !README.md
 !AGENTS.md
 !training/SIMULATION_RESULTS.md
+!reports/*.md
 
 # Entorno
 .env
