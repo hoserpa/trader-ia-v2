@@ -1,0 +1,44 @@
+[
+  {
+    "params": {
+      "range_pct": 0.12,
+      "rebalance_threshold": 0.08,
+      "levels_per_pair": 15
+    },
+    "metrics": {
+      "final_equity": 254.9607,
+      "total_return_pct": 1.9842799999999938,
+      "max_drawdown_pct": 3.2119655047677482,
+      "n_trades": 99,
+      "n_rebalances": 0
+    }
+  },
+  {
+    "params": {
+      "range_pct": 0.12,
+      "rebalance_threshold": 0.08,
+      "levels_per_pair": 20
+    },
+    "metrics": {
+      "final_equity": 252.3736,
+      "total_return_pct": 0.9712497899546424,
+      "max_drawdown_pct": 5.322669300319203,
+      "n_trades": 158,
+      "n_rebalances": 0
+    }
+  },
+  {
+    "params": {
+      "range_pct": 0.12,
+      "rebalance_threshold": 0.1,
+      "levels_per_pair": 10
+    },
+    "metrics": {
+      "final_equity": 245.3472,
+      "total_return_pct": -1.829312697313934,
+      "max_drawdown_pct": 5.187317430772231,
+      "n_trades": 49,
+      "n_rebalances": 0
+    }
+  }
+]

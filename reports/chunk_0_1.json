@@ -1,0 +1,16 @@
+[
+  {
+    "params": {
+      "range_pct": 0.06,
+      "rebalance_threshold": 0.04,
+      "levels_per_pair": 10
+    },
+    "metrics": {
+      "final_equity": 239.0444,
+      "total_return_pct": -4.351249804936808,
+      "max_drawdown_pct": 4.515612592331032,
+      "n_trades": 124,
+      "n_rebalances": 0
+    }
+  }
+]

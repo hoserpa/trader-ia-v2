@@ -41,6 +41,7 @@ async def run_backtest(config_overrides=None, start=None, end=None, resolution="
     config.database.sqlite_path = db_path
 
     import database.init_db as dbi
+    import shutil
 
     dbi._engine = None
     dbi._session_factory = None
@@ -104,6 +105,11 @@ async def run_backtest(config_overrides=None, start=None, end=None, resolution="
         closed, opens = _build_round_trips(trades)
     finally:
         db.close()
+
+    try:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+    except Exception:
+        pass
 
     return {
         "equity": equity,
